@@ -31,8 +31,8 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
   // Card 3+: Steps (derived from Section 2, Exercises 2+)
   const recipeSteps: RecipeStep[] = [];
   
-  // 1. Overview Card
-  if (localPlan.sections[0]?.exercises[0]) {
+  // 1. Overview Card - SAFE ACCESS
+  if (localPlan.sections?.[0]?.exercises?.[0]) {
       recipeSteps.push({
           type: 'Overview',
           data: localPlan.sections[0].exercises[0],
@@ -41,9 +41,9 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
       });
   }
 
-  // 2. Ingredients & Instructions
-  const mainSection = localPlan.sections[1];
-  if (mainSection) {
+  // 2. Ingredients & Instructions - SAFE ACCESS
+  const mainSection = localPlan.sections?.[1];
+  if (mainSection && mainSection.exercises) {
       mainSection.exercises.forEach((ex, idx) => {
           recipeSteps.push({
               type: idx === 0 ? 'Ingredients' : 'Instruction',
@@ -103,6 +103,10 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
   const renderCardContent = (step: RecipeStep) => {
       const { data } = step;
 
+      // Safe Access Helpers
+      const getCue = (idx: number) => data.cues && data.cues[idx] ? data.cues[idx] : "";
+      const getSetDetail = (idx: number) => data.setDetails && data.setDetails[idx] ? data.setDetails[idx] : null;
+
       if (step.type === 'Overview') {
           return (
               <div className="flex flex-col h-full justify-center items-center text-center p-6">
@@ -113,7 +117,7 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                   <div className="grid grid-cols-2 gap-4 w-full max-w-md">
                       <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
                           <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Total Time</span>
-                          <span className="text-2xl font-bold text-white">{data.cues[0] || `${localPlan.totalDuration} mins`}</span>
+                          <span className="text-2xl font-bold text-white">{getCue(0) || `${localPlan.totalDuration} mins`}</span>
                       </div>
                       <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
                           <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Calories</span>
@@ -143,7 +147,7 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                   
                   <div className="overflow-y-auto pr-2 custom-scrollbar flex-grow">
                       <ul className="space-y-3">
-                          {data.cues.map((ingredient, i) => (
+                          {(data.cues || []).map((ingredient, i) => (
                               <li key={i} className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-800 hover:border-lime-500/30 transition-colors">
                                   <div className="mt-1 w-2 h-2 rounded-full bg-lime-500 shrink-0" />
                                   <span className="text-slate-200 text-lg leading-relaxed">{ingredient}</span>
@@ -156,6 +160,8 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
       }
 
       // INSTRUCTIONS
+      const firstDetail = getSetDetail(0);
+
       return (
           <div className="flex flex-col h-full p-2 md:p-6">
               <div className="flex items-center gap-3 mb-6 border-b border-slate-800 pb-4">
@@ -168,30 +174,30 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
               <div className="flex-grow overflow-y-auto">
                    <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-inner mb-6">
                        <p className="text-xl md:text-2xl text-slate-200 leading-relaxed font-medium">
-                           {data.cues[0]}
+                           {getCue(0)}
                        </p>
-                       {data.cues.slice(1).map((extra, i) => (
+                       {(data.cues || []).slice(1).map((extra, i) => (
                            <p key={i} className="mt-4 text-slate-400 text-lg">{extra}</p>
                        ))}
                    </div>
                    
                    {/* Meta Data for Step */}
                    <div className="grid grid-cols-2 gap-4">
-                       {data.setDetails[0]?.reps && (
+                       {firstDetail?.reps && (
                            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex items-center gap-3">
                                <Timer className="w-6 h-6 text-lime-500" />
                                <div>
                                    <span className="block text-slate-500 text-xs uppercase font-bold">Timer</span>
-                                   <span className="text-white font-bold">{data.setDetails[0].reps}</span>
+                                   <span className="text-white font-bold">{firstDetail.reps}</span>
                                </div>
                            </div>
                        )}
-                       {data.setDetails[0]?.weight && (
+                       {firstDetail?.weight && (
                            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex items-center gap-3 col-span-2 md:col-span-1">
                                <Activity className="w-6 h-6 text-orange-500" />
                                <div>
                                    <span className="block text-slate-500 text-xs uppercase font-bold">Technique</span>
-                                   <span className="text-white font-bold">{data.setDetails[0].weight}</span>
+                                   <span className="text-white font-bold">{firstDetail.weight}</span>
                                </div>
                            </div>
                        )}
@@ -247,7 +253,12 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                  </div>
 
                  <div className="flex-grow relative overflow-hidden">
-                     {activeStep && renderCardContent(activeStep)}
+                     {activeStep ? renderCardContent(activeStep) : (
+                         <div className="flex flex-col items-center justify-center h-full text-slate-500 p-8 text-center">
+                            <AlertTriangle className="w-12 h-12 mb-4 text-orange-500" />
+                            <p>Recipe content incomplete. Please regenerate.</p>
+                         </div>
+                     )}
                  </div>
              </div>
           </div>

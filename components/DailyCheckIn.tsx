@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { DailyContext, TrainerType, TRAINER_FOCUS_OPTIONS } from '../types';
-import { Battery, Clock, Zap, PlayCircle, Loader2, Target, ChefHat, Utensils } from 'lucide-react';
+import { Battery, Clock, Zap, PlayCircle, Loader2, Target, ChefHat, Utensils, XCircle } from 'lucide-react';
 
 interface Props {
   onSubmit: (data: DailyContext, trainer: TrainerType) => void;
@@ -90,6 +90,8 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return; // Prevent double submit
+
     const context: DailyContext = {
       duration,
       sleepQuality: hunger, // Mapping hunger to sleepQuality field for DB compatibility
@@ -234,7 +236,7 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
         <button 
           disabled={isLoading}
           type="submit"
-          className="w-full bg-gradient-to-r from-lime-500 to-green-600 hover:from-lime-400 hover:to-green-500 text-slate-900 font-bold py-4 rounded-xl shadow-lg transform transition-all hover:scale-[1.01] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+          className="w-full bg-gradient-to-r from-lime-500 to-green-600 hover:from-lime-400 hover:to-green-500 text-slate-900 font-bold py-4 rounded-xl shadow-lg transform transition-all hover:scale-[1.01] flex items-center justify-center gap-2 disabled:opacity-90 disabled:cursor-wait"
         >
           {isLoading ? (
             <>
@@ -247,6 +249,13 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
             </>
           )}
         </button>
+        
+        {/* Helper text if hanging */}
+        {isLoading && (
+            <p className="text-center text-xs text-slate-500 animate-pulse">
+                This might take up to 20 seconds.
+            </p>
+        )}
       </form>
     </div>
   );

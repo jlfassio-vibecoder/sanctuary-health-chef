@@ -113,7 +113,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
 
         // Attempt 2: Fallback to 'user_id' column if 'id' lookup failed (row not found)
         if (!data && (error?.code === 'PGRST116' || !error)) {
-             console.log("Profile not found by 'id', trying 'user_id' in profile_attributes...");
+             // Quiet logging for fallback attempt
              const { data: data2, error: error2 } = await supabase
                 .from('profile_attributes')
                 .select('*')
@@ -123,10 +123,6 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
              if (data2) {
                  data = data2;
                  error = null;
-                 console.log("Found profile via 'user_id'");
-             } else if (error2) {
-                 // Keep the original error if both fail, but log the second one
-                 console.log("Also failed via 'user_id':", error2.code);
              }
         }
 
@@ -135,7 +131,8 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
             if (error.code !== 'PGRST116') { 
                 console.error("Error fetching profile:", JSON.stringify(error, null, 2));
             } else {
-                console.warn(`⚠️ Profile not found for ${userId} in profile_attributes. This could be missing data OR Row Level Security (RLS) blocking access.`);
+                // This is normal for new users
+                console.log(`ℹ️ No existing profile found for ${userId}. Creating new profile...`);
             }
             return null;
         }
@@ -198,6 +195,7 @@ export const saveUserProfile = async (userId: string, profile: UserProfile): Pro
             return false;
         }
 
+        console.log("✅ User profile synced to database.");
         return true;
     } catch (e) {
         console.error("Unexpected error saving profile:", e);

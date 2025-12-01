@@ -84,8 +84,7 @@ export const generateWorkout = async (
     
     TONE AND STYLE:
     - Adopt the persona of a ${trainerType}.
-    - If energy/hunger is low, make it fast and easy.
-    - If energy is high, feel free to suggest something more involved.
+    - Keep it concise. Do not ramble.
     - STRICTLY RESPECT ALLERGIES (User's "injuries" field contains allergies).
     - Use ${unitLabel} measurements for ingredients.
     
@@ -102,11 +101,11 @@ export const generateWorkout = async (
        - Item 1 ('exercises[0]'): Name = "Ingredients List". 'cues' = [List of all ingredients with amounts]. 'muscleTarget' = "Mise en Place".
        - Item 2+ ('exercises[1...]'): These are the Cooking Steps.
          - 'name' = "Step 1: [Action]", "Step 2: [Action]".
-         - 'cues' = [Detailed instructions for this step].
+         - 'cues' = [One or two specific instructions for this step].
          - 'setDetails[0].reps' = Timer/Duration for this step (if any).
          - 'setDetails[0].weight' = Key technique note.
     
-    DO NOT deviate from this structure. The UI depends on Card 1 being Overview, Card 2 Ingredients, Card 3+ Steps.
+    DO NOT deviate from this structure.
   `;
 
   const prompt = `
@@ -121,7 +120,7 @@ export const generateWorkout = async (
     CURRENT CONTEXT:
     - Cuisine/Style: ${daily.selectedFocus}
     - Time Available: ${daily.duration} mins
-    - Hunger Level: ${daily.sleepQuality}/10 (10 is Starving)
+    - Hunger Level: ${daily.sleepQuality}/10
     - Mood/Energy: ${daily.energyLevel}/10
     - Cravings: ${daily.soreness.join(', ') || 'None'}
     - Ingredients on Hand: ${daily.targetMuscleGroups.join(', ')}
@@ -137,21 +136,41 @@ export const generateWorkout = async (
         systemInstruction: systemInstruction,
         responseMimeType: "application/json",
         responseSchema: workoutSchema,
-        temperature: 0.8, // High creativity for food
+        temperature: 0.4, // Low temperature to prevent hallucinations/loops
+        maxOutputTokens: 4000, // Limit to prevent infinite loops
       },
     });
 
-    const text = response.text;
+    let text = response.text;
     if (!text) throw new Error("No response from Gemini");
     
+    // Safety cleanup for markdown code blocks if the model ignores MIME type
+    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
     const plan = JSON.parse(text) as WorkoutPlan;
+    
+    // --- SANITIZATION & VALIDATION ---
+    // Ensure the structure exists to prevent "cannot read properties of undefined" errors in UI
+    if (!plan.sections) plan.sections = [];
+    
+    plan.sections.forEach(section => {
+        if (!section.exercises) section.exercises = [];
+        section.exercises.forEach(ex => {
+            if (!ex.cues) ex.cues = [];
+            if (!ex.setDetails) ex.setDetails = [];
+        });
+    });
+
     // Attach the trainer type and focus to the plan object manually
     plan.trainerType = trainerType;
     plan.focus = daily.selectedFocus;
     return plan;
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating recipe:", error);
+    if (error.message && error.message.includes("Unterminated string")) {
+       throw new Error("Recipe generation failed (Response truncated). Please try again with a simpler request.");
+    }
     throw error;
   }
 };

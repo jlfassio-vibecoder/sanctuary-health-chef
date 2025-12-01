@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { ProfileSetup } from './components/ProfileSetup';
 import { DailyCheckIn } from './components/DailyCheckIn';
@@ -8,7 +9,7 @@ import { AccountPage } from './components/AccountPage';
 import { generateWorkout, updateGeminiApiKey, getGeminiApiKey } from './services/geminiService';
 import { verifyDatabaseSchema, getUserProfile, saveUserProfile, supabase } from './services/dbService';
 import { UserProfile, DailyContext, TrainerType, WorkoutPlan } from './types';
-import { ChefHat, BookOpen, Database, AlertTriangle, Loader2, Settings, X, Key, Copy, User } from 'lucide-react';
+import { ChefHat, BookOpen, Database, AlertTriangle, Loader2, Settings, X, Key, Copy, User, RefreshCw } from 'lucide-react';
 
 const INITIAL_PROFILE: UserProfile = {
   age: 30,
@@ -142,9 +143,13 @@ const App: React.FC = () => {
 
     try {
       const plan = await generateWorkout(profile, dailyContext, trainer);
+      if (!plan) {
+         throw new Error("Received empty recipe plan.");
+      }
       setWorkoutPlan(plan);
       setCurrentView('active-workout');
     } catch (err: any) {
+      console.error("Generation failed:", err);
       setError(err.message || "Failed to generate recipe. Please try again.");
     } finally {
       setIsLoading(false);
@@ -444,10 +449,21 @@ create policy "Users can delete their own exercises" on public.workout_exercises
                 onSubmit={handleGenerate} 
                 isLoading={isLoading} 
               />
+              
+              {/* Error Message Display */}
               {error && (
-                <div className="mt-6 bg-red-500/10 border border-red-500/50 text-red-400 p-4 rounded-xl flex items-center gap-3">
-                   <AlertTriangle className="w-5 h-5 shrink-0" />
-                   <p>{error}</p>
+                <div className="mt-6 bg-red-500/10 border border-red-500/50 text-red-400 p-4 rounded-xl flex items-start gap-3 animate-in fade-in slide-in-from-bottom-2">
+                   <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                   <div>
+                       <h4 className="font-bold text-red-400">Recipe Generation Failed</h4>
+                       <p className="text-sm opacity-90 mb-2">{error}</p>
+                       <button 
+                         onClick={() => setError(null)}
+                         className="text-xs uppercase font-bold tracking-wider hover:text-white underline"
+                       >
+                         Dismiss
+                       </button>
+                   </div>
                 </div>
               )}
            </div>
