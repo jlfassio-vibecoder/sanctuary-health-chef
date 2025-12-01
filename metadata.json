@@ -1,0 +1,5 @@
+{
+  "name": "FitCopilot Chef",
+  "description": "An intelligent personal chef that generates healthy recipes based on user's dietary profile powered by Gemini 2.5. Features structured recipe cards and cooking tips.",
+  "requestFramePermissions": []
+}
