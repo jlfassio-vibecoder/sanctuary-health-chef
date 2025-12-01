@@ -1,85 +1,80 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-import { WorkoutPlan, Exercise, UnitSystem } from '../types';
-import { saveWorkoutToDb } from '../services/dbService';
-import { Clock, Flame, CheckCircle2, ChefHat, Timer, AlertTriangle, Maximize2, X, ChevronLeft, ChevronRight, Activity, Save, CloudUpload, Utensils } from 'lucide-react';
+import { Recipe, RecipeSection, UnitSystem } from '../types';
+import { saveRecipeToDb } from '../services/dbService';
+import { generateDishImage } from '../services/geminiService';
+import { Clock, Flame, CheckCircle2, ChefHat, Timer, AlertTriangle, ChevronLeft, ChevronRight, Activity, CloudUpload, Utensils, RefreshCw, Loader2 } from 'lucide-react';
 
 interface Props {
-  plan: WorkoutPlan;
+  plan: Recipe;
   units: UnitSystem;
   userId: string;
 }
 
 // Flattened Step for the Carousel
-interface RecipeStep {
-  type: 'Overview' | 'Ingredients' | 'Instruction';
-  data: Exercise;
-  sectionTitle: string;
-  stepIndex: number; // 0 for overview, 1 for ingredients, 2+ for steps
+interface DisplayStep {
+  type: 'Overview' | 'Ingredients' | 'Instructions';
+  data: RecipeSection;
+  index: number;
 }
 
 export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
-  // Lift plan to state to support editing
-  const [localPlan, setLocalPlan] = useState<WorkoutPlan>(plan);
+  const [localRecipe, setLocalRecipe] = useState<Recipe>(plan);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
   const [hasSaved, setHasSaved] = useState(!!plan.id);
-
-  // Flatten the "Workout" structure into a linear Recipe flow
-  // Card 1: Overview (derived from Section 1)
-  // Card 2: Ingredients (derived from Section 2, Exercise 1)
-  // Card 3+: Steps (derived from Section 2, Exercises 2+)
-  const recipeSteps: RecipeStep[] = [];
   
-  // 1. Overview Card - SAFE ACCESS
-  if (localPlan.sections?.[0]?.exercises?.[0]) {
-      recipeSteps.push({
-          type: 'Overview',
-          data: localPlan.sections[0].exercises[0],
-          sectionTitle: "Preparation",
-          stepIndex: 0
-      });
-  }
+  const [dishImage, setDishImage] = useState<string | null>(localRecipe.imageUrl || null);
+  const [isImageLoading, setIsImageLoading] = useState(false);
 
-  // 2. Ingredients & Instructions - SAFE ACCESS
-  const mainSection = localPlan.sections?.[1];
-  if (mainSection && mainSection.exercises) {
-      mainSection.exercises.forEach((ex, idx) => {
-          recipeSteps.push({
-              type: idx === 0 ? 'Ingredients' : 'Instruction',
-              data: ex,
-              sectionTitle: idx === 0 ? "Mise en Place" : "Cooking",
-              stepIndex: recipeSteps.length
+  // Flatten the Recipe Sections into a linear flow for the carousel
+  const displaySteps: DisplayStep[] = [];
+  
+  if (localRecipe.sections) {
+      localRecipe.sections.forEach((section, idx) => {
+          displaySteps.push({
+              type: section.type,
+              data: section,
+              index: idx
           });
       });
   }
 
   useEffect(() => {
-    setLocalPlan(plan);
+    setLocalRecipe(plan);
     setHasSaved(!!plan.id);
     setCurrentStepIndex(0);
+    setDishImage(plan.imageUrl || null);
   }, [plan]);
 
+  useEffect(() => {
+    const fetchImage = async () => {
+      if (!dishImage && !isImageLoading && localRecipe.title) {
+        setIsImageLoading(true);
+        const imgUrl = await generateDishImage(localRecipe.title, localRecipe.description);
+        if (imgUrl) {
+           setDishImage(imgUrl);
+           setLocalRecipe(prev => ({ ...prev, imageUrl: imgUrl }));
+        }
+        setIsImageLoading(false);
+      }
+    };
+    fetchImage();
+  }, [localRecipe.title]);
 
   const handleNext = useCallback(() => {
-    if (currentStepIndex < recipeSteps.length - 1) {
-        setCurrentStepIndex(prev => prev + 1);
-    }
-  }, [currentStepIndex, recipeSteps.length]);
+    if (currentStepIndex < displaySteps.length - 1) setCurrentStepIndex(prev => prev + 1);
+  }, [currentStepIndex, displaySteps.length]);
 
   const handlePrev = useCallback(() => {
-    if (currentStepIndex > 0) {
-        setCurrentStepIndex(prev => prev - 1);
-    }
+    if (currentStepIndex > 0) setCurrentStepIndex(prev => prev - 1);
   }, [currentStepIndex]);
-
 
   const handleFullSave = async () => {
       setIsSaving(true);
-      const newId = await saveWorkoutToDb(localPlan, userId);
+      const newId = await saveRecipeToDb(localRecipe, userId);
       setIsSaving(false);
       if (newId) {
-          setLocalPlan(prev => ({ ...prev, id: newId }));
+          setLocalRecipe(prev => ({ ...prev, id: newId }));
           setHasSaved(true);
           alert("Recipe saved to cookbook!"); 
       }
@@ -91,41 +86,67 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
       if (e.key === 'ArrowRight') handleNext();
       if (e.key === 'ArrowLeft') handlePrev();
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleNext, handlePrev]);
 
+  const activeStep = displaySteps[currentStepIndex];
 
-  const activeStep = recipeSteps[currentStepIndex];
-
-  // RENDER CARD CONTENT BASED ON TYPE
-  const renderCardContent = (step: RecipeStep) => {
+  const renderCardContent = (step: DisplayStep) => {
       const { data } = step;
-
-      // Safe Access Helpers
-      const getCue = (idx: number) => data.cues && data.cues[idx] ? data.cues[idx] : "";
-      const getSetDetail = (idx: number) => data.setDetails && data.setDetails[idx] ? data.setDetails[idx] : null;
 
       if (step.type === 'Overview') {
           return (
-              <div className="flex flex-col h-full justify-center items-center text-center p-6">
-                  <ChefHat className="w-20 h-20 text-lime-500 mb-6" />
-                  <h2 className="text-3xl font-bold text-white mb-2">{localPlan.title}</h2>
-                  <div className="text-slate-400 mb-8 max-w-md">{localPlan.description}</div>
-                  
-                  <div className="grid grid-cols-2 gap-4 w-full max-w-md">
-                      <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                          <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Total Time</span>
-                          <span className="text-2xl font-bold text-white">{getCue(0) || `${localPlan.totalDuration} mins`}</span>
+              <div className="flex flex-col h-full relative">
+                  <div className="relative h-48 md:h-64 w-full bg-slate-800 shrink-0">
+                      {dishImage ? (
+                          <img 
+                            src={dishImage} 
+                            alt={localRecipe.title} 
+                            className="w-full h-full object-cover animate-in fade-in duration-1000"
+                          />
+                      ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-slate-800 text-slate-500">
+                               {isImageLoading ? (
+                                   <div className="flex flex-col items-center gap-2">
+                                       <Loader2 className="w-8 h-8 animate-spin text-lime-500" />
+                                       <span className="text-xs font-medium uppercase tracking-widest text-lime-500/80">Plating Dish...</span>
+                                   </div>
+                               ) : (
+                                   <div className="flex flex-col items-center gap-2">
+                                       <ChefHat className="w-12 h-12 opacity-20" />
+                                       <span className="text-xs">No image available</span>
+                                   </div>
+                               )}
+                          </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-90"></div>
+                      <div className="absolute bottom-4 left-6 right-6">
+                           <div className="flex items-center gap-2 mb-2">
+                               <span className="bg-lime-500 text-slate-900 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded">
+                                   {localRecipe.chefPersona}
+                               </span>
+                           </div>
+                           <h2 className="text-3xl font-bold text-white leading-tight shadow-black drop-shadow-lg">{localRecipe.title}</h2>
                       </div>
-                      <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                          <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Calories</span>
-                          <span className="text-2xl font-bold text-white">{localPlan.estimatedCalories}</span>
-                      </div>
-                      <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 col-span-2">
-                           <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Difficulty</span>
-                           <span className="text-xl font-bold text-lime-400">{localPlan.difficulty}</span>
+                  </div>
+
+                  <div className="p-6 flex flex-col items-center justify-center flex-grow text-center">
+                      <div className="text-slate-400 mb-8 max-w-md text-sm md:text-base">{localRecipe.description}</div>
+                      
+                      <div className="grid grid-cols-2 gap-4 w-full max-w-md">
+                          <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                              <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Total Time</span>
+                              <span className="text-xl md:text-2xl font-bold text-white">{localRecipe.totalTime} mins</span>
+                          </div>
+                          <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                              <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Calories</span>
+                              <span className="text-xl md:text-2xl font-bold text-white">{localRecipe.calories}</span>
+                          </div>
+                          <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 col-span-2 flex justify-between items-center px-6">
+                               <span className="text-slate-500 text-xs font-bold uppercase">Difficulty</span>
+                               <span className="text-xl font-bold text-lime-400">{localRecipe.difficulty}</span>
+                          </div>
                       </div>
                   </div>
               </div>
@@ -140,64 +161,68 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                           <Utensils className="w-8 h-8 text-lime-400" />
                       </div>
                       <div>
-                          <h2 className="text-2xl md:text-3xl font-black text-white">Ingredients</h2>
+                          <h2 className="text-2xl md:text-3xl font-black text-white">{data.title}</h2>
                           <p className="text-slate-400 text-sm">Gather everything before you start.</p>
                       </div>
                   </div>
                   
                   <div className="overflow-y-auto pr-2 custom-scrollbar flex-grow">
-                      <ul className="space-y-3">
-                          {(data.cues || []).map((ingredient, i) => (
-                              <li key={i} className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-800 hover:border-lime-500/30 transition-colors">
-                                  <div className="mt-1 w-2 h-2 rounded-full bg-lime-500 shrink-0" />
-                                  <span className="text-slate-200 text-lg leading-relaxed">{ingredient}</span>
-                              </li>
-                          ))}
-                      </ul>
+                      {(data.items && data.items.length > 0) ? (
+                        <ul className="space-y-3">
+                            {data.items.map((ingredient, i) => (
+                                <li key={i} className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-800 hover:border-lime-500/30 transition-colors">
+                                    <div className="mt-1 w-2 h-2 rounded-full bg-lime-500 shrink-0" />
+                                    <span className="text-slate-200 text-lg leading-relaxed">{ingredient}</span>
+                                </li>
+                            ))}
+                        </ul>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                             <AlertTriangle className="w-10 h-10 mb-2 opacity-50" />
+                             <p>List is empty.</p>
+                        </div>
+                      )}
                   </div>
               </div>
           );
       }
 
-      // INSTRUCTIONS
-      const firstDetail = getSetDetail(0);
-
+      // Instructions
       return (
           <div className="flex flex-col h-full p-2 md:p-6">
               <div className="flex items-center gap-3 mb-6 border-b border-slate-800 pb-4">
                    <div className="flex flex-col">
-                       <span className="text-xs text-lime-400 font-bold uppercase tracking-wider">Step {currentStepIndex - 1}</span>
-                       <h2 className="text-2xl md:text-3xl font-black text-white leading-tight">{data.name.replace(/^Step \d+: /, '')}</h2>
+                       <span className="text-xs text-lime-400 font-bold uppercase tracking-wider">Instruction</span>
+                       <h2 className="text-2xl md:text-3xl font-black text-white leading-tight">{data.title}</h2>
                    </div>
               </div>
 
               <div className="flex-grow overflow-y-auto">
                    <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-inner mb-6">
                        <p className="text-xl md:text-2xl text-slate-200 leading-relaxed font-medium">
-                           {getCue(0)}
+                           {data.items[0]}
                        </p>
-                       {(data.cues || []).slice(1).map((extra, i) => (
+                       {(data.items || []).slice(1).map((extra, i) => (
                            <p key={i} className="mt-4 text-slate-400 text-lg">{extra}</p>
                        ))}
                    </div>
                    
-                   {/* Meta Data for Step */}
                    <div className="grid grid-cols-2 gap-4">
-                       {firstDetail?.reps && (
+                       {data.metadata?.timer && (
                            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex items-center gap-3">
                                <Timer className="w-6 h-6 text-lime-500" />
                                <div>
                                    <span className="block text-slate-500 text-xs uppercase font-bold">Timer</span>
-                                   <span className="text-white font-bold">{firstDetail.reps}</span>
+                                   <span className="text-white font-bold">{data.metadata.timer}</span>
                                </div>
                            </div>
                        )}
-                       {firstDetail?.weight && (
+                       {data.metadata?.technique && (
                            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex items-center gap-3 col-span-2 md:col-span-1">
                                <Activity className="w-6 h-6 text-orange-500" />
                                <div>
                                    <span className="block text-slate-500 text-xs uppercase font-bold">Technique</span>
-                                   <span className="text-white font-bold">{firstDetail.weight}</span>
+                                   <span className="text-white font-bold">{data.metadata.technique}</span>
                                </div>
                            </div>
                        )}
@@ -209,8 +234,6 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
 
   return (
     <div className="animate-in slide-in-from-bottom-8 duration-700 pb-20 pt-4">
-      
-      {/* Header Actions */}
       <div className="flex justify-between items-center mb-6">
            <button 
               onClick={handleFullSave}
@@ -226,9 +249,7 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
            </button>
       </div>
 
-      {/* Main Recipe Card Container */}
-      <div className="flex items-center justify-center gap-4 h-[70vh]">
-          {/* Prev Button */}
+      <div className="flex items-center justify-center gap-4 h-[75vh]">
           <button 
             onClick={handlePrev}
             disabled={currentStepIndex === 0}
@@ -237,14 +258,11 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
             <ChevronLeft className="w-10 h-10 text-lime-400" />
           </button>
 
-          {/* Card */}
           <div className="w-full max-w-2xl h-full bg-slate-900 rounded-3xl p-1 shadow-2xl border border-slate-700 relative flex flex-col">
              <div className="absolute -inset-0.5 bg-gradient-to-br from-lime-500 to-green-600 rounded-3xl opacity-20 blur-sm pointer-events-none"></div>
              <div className="relative bg-slate-950 rounded-[22px] overflow-hidden h-full flex flex-col">
-                 
-                 {/* Progress Bar */}
-                 <div className="h-1 bg-slate-900 w-full flex">
-                     {recipeSteps.map((_, idx) => (
+                 <div className="h-1 bg-slate-900 w-full flex shrink-0">
+                     {displaySteps.map((_, idx) => (
                          <div 
                            key={idx}
                            className={`h-full flex-1 transition-all duration-300 ${idx <= currentStepIndex ? 'bg-lime-500' : 'bg-slate-800'} ${idx > 0 ? 'border-l border-slate-950' : ''}`}
@@ -252,50 +270,33 @@ export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                      ))}
                  </div>
 
-                 <div className="flex-grow relative overflow-hidden">
+                 <div className="flex-grow relative overflow-hidden flex flex-col">
                      {activeStep ? renderCardContent(activeStep) : (
                          <div className="flex flex-col items-center justify-center h-full text-slate-500 p-8 text-center">
                             <AlertTriangle className="w-12 h-12 mb-4 text-orange-500" />
-                            <p>Recipe content incomplete. Please regenerate.</p>
+                            <p>Recipe content incomplete.</p>
+                            <button onClick={() => window.location.reload()} className="flex items-center gap-2 text-lime-400 hover:text-lime-300 mt-4">
+                                <RefreshCw className="w-4 h-4" /> Reload App
+                            </button>
                          </div>
                      )}
                  </div>
              </div>
           </div>
 
-          {/* Next Button */}
           <button 
             onClick={handleNext}
-            disabled={currentStepIndex === recipeSteps.length - 1}
+            disabled={currentStepIndex === displaySteps.length - 1}
             className="p-3 rounded-full hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition-all hidden md:block"
           >
             <ChevronRight className="w-10 h-10 text-lime-400" />
           </button>
       </div>
       
-      {/* Mobile Navigation */}
-      <div className="flex md:hidden gap-4 mt-6 w-full px-4">
-           <button 
-             onClick={handlePrev}
-             disabled={currentStepIndex === 0}
-             className="flex-1 bg-slate-800 py-3 rounded-xl flex justify-center items-center text-lime-400 disabled:opacity-30"
-           >
-             <ChevronLeft className="w-6 h-6" /> Back
-           </button>
-           <button 
-             onClick={handleNext}
-             disabled={currentStepIndex === recipeSteps.length - 1}
-             className="flex-1 bg-slate-800 py-3 rounded-xl flex justify-center items-center text-lime-400 disabled:opacity-30"
-           >
-             Next <ChevronRight className="w-6 h-6" />
-           </button>
-      </div>
-
       <div className="mt-8 text-center text-slate-500 text-sm">
-         <p>"{localPlan.trainerNotes}"</p>
-         <p className="mt-2 text-xs uppercase tracking-widest">- {localPlan.trainerType}</p>
+         <p>"{localRecipe.chefNote}"</p>
+         <p className="mt-2 text-xs uppercase tracking-widest">- {localRecipe.chefPersona}</p>
       </div>
-
     </div>
   );
 };

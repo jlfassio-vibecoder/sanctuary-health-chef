@@ -1,131 +1,111 @@
 
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { UserProfile, DailyContext, TrainerType, WorkoutPlan } from "../types";
+import JSON5 from 'json5';
+import { UserProfile, DailyContext, TrainerType, Recipe } from "../types";
 
-// Initialize API Key management
 const STORAGE_KEY = 'GEMINI_API_KEY';
-// Note: In a real app, never hardcode the key. This is for the demo context.
 const DEFAULT_KEY = 'AIzaSyCPgDl4SY_etT74EPzIU_iPxwfCFA-KEUk';
 
 let currentApiKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) || DEFAULT_KEY : DEFAULT_KEY;
 
 export const updateGeminiApiKey = (key: string) => {
   currentApiKey = key;
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, key);
-  }
+  if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, key);
 };
 
 export const getGeminiApiKey = () => currentApiKey;
 
-// Define the response schema for structured output
-const workoutSchema: Schema = {
+// NEW: Clean Recipe Schema for Gemini
+const recipeSchema: Schema = {
   type: Type.OBJECT,
   properties: {
     title: { type: Type.STRING, description: "Name of the Dish" },
-    description: { type: Type.STRING, description: "Mouth-watering description of the meal" },
-    difficulty: { type: Type.STRING, description: "Cooking Difficulty: Easy, Medium, Hard" },
-    trainerNotes: { type: Type.STRING, description: "Chef's personal tip or flavor note" },
-    totalDuration: { type: Type.NUMBER, description: "Total prep + cook time in minutes" },
-    estimatedCalories: { type: Type.NUMBER, description: "Estimated calories per serving" },
+    description: { type: Type.STRING, description: "Appetizing description" },
+    difficulty: { type: Type.STRING, enum: ["Easy", "Medium", "Hard"] },
+    chefNote: { type: Type.STRING, description: "Personal tip from the chef" },
+    totalTime: { type: Type.NUMBER, description: "Total minutes" },
+    calories: { type: Type.NUMBER, description: "Calories per serving" },
     sections: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
         properties: {
-          type: { type: Type.STRING, enum: ["Warmup", "Main Workout", "Cooldown", "Finisher"] }, // Mapping: Warmup=Overview, Main=Recipe
-          durationEstimate: { type: Type.STRING, description: "e.g., '10 mins'" },
-          exercises: {
-            type: Type.ARRAY,
-            items: {
+          type: { type: Type.STRING, enum: ["Overview", "Ingredients", "Instructions"] },
+          title: { type: Type.STRING },
+          items: { type: Type.ARRAY, items: { type: Type.STRING } },
+          metadata: {
               type: Type.OBJECT,
               properties: {
-                name: { type: Type.STRING, description: "Ingredient name OR Step Title" },
-                sets: { type: Type.NUMBER, description: "Just put 1" },
-                muscleTarget: { type: Type.STRING, description: "Ingredient Category (e.g. Dairy) OR Step Type (e.g. Chop)" },
-                tempo: { type: Type.STRING, description: "Cooking Method (e.g. Bake) or N/A" },
-                cues: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Specific cooking tips for this step" },
-                setDetails: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      reps: { type: Type.STRING, description: "Ingredient Quantity (e.g. '2 cups') or Timer" },
-                      weight: { type: Type.STRING, description: "Prep Note (e.g. 'Diced') or blank" },
-                      duration: { type: Type.STRING, description: "Time if applicable, e.g., '45s'" },
-                      rest: { type: Type.STRING, description: "Heat level (Low/Med/High)" },
-                      notes: { type: Type.STRING }
-                    }
-                  }
-                }
+                  timer: { type: Type.STRING },
+                  technique: { type: Type.STRING },
+                  quantity: { type: Type.STRING }
               }
-            }
           }
-        }
+        },
+        required: ["type", "title", "items"]
       }
     }
-  }
+  },
+  required: ["title", "sections", "totalTime", "calories"]
 };
 
-export const generateWorkout = async (
+export const generateRecipe = async (
   profile: UserProfile,
   daily: DailyContext,
-  trainerType: TrainerType
-): Promise<WorkoutPlan> => {
+  chefType: TrainerType
+): Promise<Recipe> => {
   
-  // Re-initialize client on every request to ensure it uses the latest key
   const ai = new GoogleGenAI({ apiKey: currentApiKey });
-
   const unitLabel = profile.units === 'standard' ? 'imperial' : 'metric';
+  
+  // Check for imported workout context passed via equipmentAvailable hack or cravings
+  const workoutContext = daily.equipmentAvailable?.find(e => e.includes("Recovery Meal for:"));
 
   const systemInstruction = `
-    You are an expert Private Chef called "${trainerType}" working for "FitCopilot Chef".
-    Your goal is to generate a delicious, healthy, and tailored recipe based on the user's dietary needs and hunger level.
+    You are an expert Private Chef called "${chefType}".
+    Generate a delicious, healthy, tailored recipe.
     
-    TONE AND STYLE:
-    - Adopt the persona of a ${trainerType}.
-    - Keep it concise. Do not ramble.
-    - STRICTLY RESPECT ALLERGIES (User's "injuries" field contains allergies).
-    - Use ${unitLabel} measurements for ingredients.
+    RULES:
+    - Respect Allergies: ${profile.injuries.join(', ') || 'None'}.
+    - Use ${unitLabel} measurements.
+    - Return valid JSON matching the schema.
     
-    DATA MAPPING INSTRUCTIONS (CRITICAL):
-    You must return JSON that fits a "Workout" schema, but contains RECIPE data.
+    STRUCTURE:
+    1. Section 1 (Overview): items=["Prep: X min", "Cook: Y min", "Serves: Z"]
+    2. Section 2 (Ingredients): title="Mise en Place", items=[List of ingredients]
+    3. Section 3+ (Instructions): title="Step 1:...", items=[Detailed instruction], metadata={timer:"X mins"}
     
-    Structure the 'sections' array exactly like this:
-    1. **Section 1 (type: "Warmup")**: This is the "Recipe Overview".
-       - It must contain exactly 1 item in 'exercises'.
-       - 'exercises[0].name' = "Recipe Overview".
-       - 'exercises[0].cues' = [Prep Time string, Cook Time string, Serving Size string].
-       
-    2. **Section 2 (type: "Main Workout")**: This is the "Ingredients & Instructions".
-       - Item 1 ('exercises[0]'): Name = "Ingredients List". 'cues' = [List of all ingredients with amounts]. 'muscleTarget' = "Mise en Place".
-       - Item 2+ ('exercises[1...]'): These are the Cooking Steps.
-         - 'name' = "Step 1: [Action]", "Step 2: [Action]".
-         - 'cues' = [One or two specific instructions for this step].
-         - 'setDetails[0].reps' = Timer/Duration for this step (if any).
-         - 'setDetails[0].weight' = Key technique note.
-    
-    DO NOT deviate from this structure.
+    EXAMPLE JSON:
+    {
+      "title": "Lemon Chicken",
+      "description": "Zesty and fresh.",
+      "difficulty": "Easy",
+      "chefNote": "Don't overcook!",
+      "totalTime": 30,
+      "calories": 400,
+      "sections": [
+        { "type": "Overview", "title": "Info", "items": ["Prep: 10m", "Cook: 20m", "Serves: 2"] },
+        { "type": "Ingredients", "title": "Mise en Place", "items": ["2 Chicken Breasts", "1 Lemon"] },
+        { "type": "Instructions", "title": "Step 1: Sear", "items": ["Sear chicken in pan."], "metadata": { "timer": "5 mins", "technique": "High Heat" } }
+      ]
+    }
   `;
 
   const prompt = `
-    USER PROFILE:
-    - Age: ${profile.age}, Gender: ${profile.gender}
-    - Weight Goal: ${profile.goals.join(', ')}
-    - Cooking Skill: ${profile.fitnessLevel}
-    - Allergies/Intolerances: ${profile.injuries.join(', ') || 'None'} (CRITICAL)
-    - Dietary Restrictions: ${profile.medicalConditions.join(', ') || 'None'}
-    - Dislikes/Equipment: ${profile.preferences.join(', ')}
+    User Profile: ${profile.age}yo ${profile.gender}, Goal: ${profile.goals.join(', ')}.
+    Skill: ${profile.fitnessLevel}.
+    Allergies: ${profile.injuries.join(', ') || 'None'}.
+    Dislikes: ${profile.preferences.join(', ')}.
     
-    CURRENT CONTEXT:
-    - Cuisine/Style: ${daily.selectedFocus}
-    - Time Available: ${daily.duration} mins
-    - Hunger Level: ${daily.sleepQuality}/10
-    - Mood/Energy: ${daily.energyLevel}/10
-    - Cravings: ${daily.soreness.join(', ') || 'None'}
-    - Ingredients on Hand: ${daily.targetMuscleGroups.join(', ')}
+    Context:
+    - Cuisine: ${daily.selectedFocus}
+    - Time: ${daily.duration} mins
+    - Hunger: ${daily.sleepQuality}/10
+    - Cravings/Context: ${daily.soreness.join(', ') || 'None'}
+    - Pantry: ${daily.targetMuscleGroups.join(', ')}
+    ${workoutContext ? `- SPECIAL REQUEST: ${workoutContext} - Ensure macronutrients (protein/carbs) are optimized for recovery from this specific activity.` : ''}
     
-    Generate the recipe plan now.
+    Generate the FULL recipe JSON now.
   `;
 
   try {
@@ -135,42 +115,65 @@ export const generateWorkout = async (
       config: {
         systemInstruction: systemInstruction,
         responseMimeType: "application/json",
-        responseSchema: workoutSchema,
-        temperature: 0.4, // Low temperature to prevent hallucinations/loops
-        maxOutputTokens: 4000, // Limit to prevent infinite loops
+        responseSchema: recipeSchema,
+        temperature: 0.4, 
+        maxOutputTokens: 4000, 
       },
     });
 
-    let text = response.text;
-    if (!text) throw new Error("No response from Gemini");
+    let text = response.text || "";
     
-    // Safety cleanup for markdown code blocks if the model ignores MIME type
+    // Clean and Parse
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const startIndex = text.indexOf('{');
+    const endIndex = text.lastIndexOf('}');
+    if (startIndex !== -1 && endIndex !== -1) text = text.substring(startIndex, endIndex + 1);
 
-    const plan = JSON.parse(text) as WorkoutPlan;
+    let recipe: Recipe;
+    try {
+        recipe = JSON5.parse(text) as Recipe;
+    } catch (e) {
+        console.warn("JSON5 failed, trying standard JSON", e);
+        recipe = JSON.parse(text);
+    }
     
-    // --- SANITIZATION & VALIDATION ---
-    // Ensure the structure exists to prevent "cannot read properties of undefined" errors in UI
-    if (!plan.sections) plan.sections = [];
-    
-    plan.sections.forEach(section => {
-        if (!section.exercises) section.exercises = [];
-        section.exercises.forEach(ex => {
-            if (!ex.cues) ex.cues = [];
-            if (!ex.setDetails) ex.setDetails = [];
-        });
-    });
+    // Validation
+    if (!recipe.sections || recipe.sections.length < 2) {
+        throw new Error("Incomplete recipe generated. Please try again.");
+    }
 
-    // Attach the trainer type and focus to the plan object manually
-    plan.trainerType = trainerType;
-    plan.focus = daily.selectedFocus;
-    return plan;
+    // Hydrate local fields
+    recipe.chefPersona = chefType;
+    recipe.cuisine = daily.selectedFocus;
+    
+    return recipe;
 
   } catch (error: any) {
     console.error("Error generating recipe:", error);
-    if (error.message && error.message.includes("Unterminated string")) {
-       throw new Error("Recipe generation failed (Response truncated). Please try again with a simpler request.");
+    if (error.message?.includes("Unterminated")) {
+       throw new Error("Generation timed out. Try a simpler request.");
     }
     throw error;
+  }
+};
+
+export const generateDishImage = async (title: string, description: string): Promise<string | null> => {
+  const ai = new GoogleGenAI({ apiKey: currentApiKey });
+  try {
+    const prompt = `Professional food photography of ${title}. ${description}. 4k, cinematic lighting, top down view.`;
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: { parts: [{ text: prompt }] },
+      config: { imageConfig: { aspectRatio: "16:9" } }
+    });
+
+    const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+    if (part?.inlineData?.data) {
+        return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error generating image:", error);
+    return null;
   }
 };
