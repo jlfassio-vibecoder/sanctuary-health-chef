@@ -2,8 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { ProfileSetup } from './components/ProfileSetup';
 import { DailyCheckIn } from './components/DailyCheckIn';
-import { WorkoutDisplay } from './components/WorkoutDisplay';
-import { WorkoutHistory } from './components/WorkoutHistory';
+import { RecipeDisplay } from './components/RecipeDisplay';
+import { RecipeHistory } from './components/RecipeHistory';
 import { AuthPage } from './components/AuthPage';
 import { AccountPage } from './components/AccountPage';
 import { generateRecipe, updateGeminiApiKey, getGeminiApiKey } from './services/geminiService';
@@ -273,8 +273,8 @@ create policy "Users can delete their own recipe content" on public.recipe_conte
               {error && <div className="mt-6 bg-red-500/10 border border-red-500/50 text-red-400 p-4 rounded-xl flex gap-3"><AlertTriangle className="w-5 h-5" /> <div><h4 className="font-bold">Error</h4><p>{error}</p></div></div>}
            </div>
         )}
-        {currentView === 'active-workout' && recipePlan && <WorkoutDisplay plan={recipePlan} units={profile.units} userId={currentUserId!} />}
-        {currentView === 'history' && <WorkoutHistory userId={currentUserId!} onLoadWorkout={handleLoadRecipe} />}
+        {currentView === 'active-workout' && recipePlan && <RecipeDisplay plan={recipePlan} units={profile.units} userId={currentUserId!} />}
+        {currentView === 'history' && <RecipeHistory userId={currentUserId!} onLoadWorkout={handleLoadRecipe} />}
       </main>
     </div>
   );

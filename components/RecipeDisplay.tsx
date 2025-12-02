@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { Recipe, RecipeSection, UnitSystem } from '../types';
 import { saveRecipeToDb } from '../services/dbService';
@@ -17,7 +18,7 @@ interface DisplayStep {
   index: number;
 }
 
-export const WorkoutDisplay: React.FC<Props> = ({ plan, units, userId }) => {
+export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
   const [localRecipe, setLocalRecipe] = useState<Recipe>(plan);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);

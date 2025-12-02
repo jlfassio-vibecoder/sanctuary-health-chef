@@ -9,7 +9,7 @@ interface Props {
   userId: string;
 }
 
-export const WorkoutHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
+export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCuisine, setFilterCuisine] = useState<string>('All');
