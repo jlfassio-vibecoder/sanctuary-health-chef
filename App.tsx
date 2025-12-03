@@ -50,7 +50,7 @@ const App: React.FC = () => {
 
   // 1. Auth & SSO
   useEffect(() => {
-    // Initialize SSO Receiver
+    // Initialize SSO Receiver to listen for token from Hub
     ssoReceiver.initialize();
 
     if (!supabase) {
@@ -58,15 +58,21 @@ const App: React.FC = () => {
         return () => ssoReceiver.cleanup();
     }
     
+    // Check for existing session
     supabase.auth.getSession().then(({ data: { session } }: any) => {
         setSession(session);
         setLoadingSession(false);
     });
     
+    // Listen for auth changes (including SSO login)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: string, session: any) => {
         setSession(session);
         setLoadingSession(false);
-        if (session) setCurrentView('generator');
+        if (session) {
+            // If we were on auth page, go to generator
+            // If already on a view, stay there (prevents resetting view on refresh)
+            // But we can default to generator for new logins
+        }
     });
     
     return () => {
