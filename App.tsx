@@ -13,6 +13,9 @@ import { ssoReceiver } from './services/SSOReceiver';
 import { UserProfile, DailyContext, TrainerType, Recipe } from './types';
 import { ChefHat, BookOpen, Database, AlertTriangle, Loader2, Settings, X, Key, Copy, User, ShoppingCart, Archive } from 'lucide-react';
 
+// DEBUG LOGGING
+console.log('📦 App.tsx module loaded');
+
 const INITIAL_PROFILE: UserProfile = {
   age: 30,
   gender: 'Male',
@@ -50,6 +53,8 @@ const App: React.FC = () => {
 
   // 1. Auth & SSO
   useEffect(() => {
+    console.log('🚀 App mounting, initializing SSO...');
+    
     // Initialize SSO Receiver to listen for token from Hub
     ssoReceiver.initialize();
 
