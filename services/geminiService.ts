@@ -33,6 +33,19 @@ const recipeSchema: Schema = {
           type: { type: Type.STRING, enum: ["Overview", "Ingredients", "Instructions"] },
           title: { type: Type.STRING },
           items: { type: Type.ARRAY, items: { type: Type.STRING } },
+          ingredients: {
+              type: Type.ARRAY,
+              items: {
+                  type: Type.OBJECT,
+                  properties: {
+                      item: { type: Type.STRING },
+                      quantity: { type: Type.STRING },
+                      unit: { type: Type.STRING },
+                      prep: { type: Type.STRING }
+                  },
+                  required: ["item", "quantity", "unit", "prep"]
+              }
+          },
           metadata: {
               type: Type.OBJECT,
               properties: {
@@ -72,7 +85,7 @@ export const generateRecipe = async (
     
     STRUCTURE:
     1. Section 1 (Overview): items=["Prep: X min", "Cook: Y min", "Serves: Z"]
-    2. Section 2 (Ingredients): title="Mise en Place", items=[List of ingredients]
+    2. Section 2 (Ingredients): title="Mise en Place", items=[Legacy list...], ingredients=[{item:"Chicken", quantity:"2", unit:"lbs", prep:"diced"}]
     3. Section 3+ (Instructions): title="Step 1:...", items=[Detailed instruction], metadata={timer:"X mins"}
     
     EXAMPLE JSON:
@@ -85,7 +98,15 @@ export const generateRecipe = async (
       "calories": 400,
       "sections": [
         { "type": "Overview", "title": "Info", "items": ["Prep: 10m", "Cook: 20m", "Serves: 2"] },
-        { "type": "Ingredients", "title": "Mise en Place", "items": ["2 Chicken Breasts", "1 Lemon"] },
+        { 
+            "type": "Ingredients", 
+            "title": "Mise en Place", 
+            "items": ["2 Chicken Breasts", "1 Lemon"],
+            "ingredients": [
+                { "item": "Chicken Breast", "quantity": "2", "unit": "count", "prep": "boneless" },
+                { "item": "Lemon", "quantity": "1", "unit": "whole", "prep": "sliced" }
+            ]
+        },
         { "type": "Instructions", "title": "Step 1: Sear", "items": ["Sear chicken in pan."], "metadata": { "timer": "5 mins", "technique": "High Heat" } }
       ]
     }
@@ -116,8 +137,8 @@ export const generateRecipe = async (
         systemInstruction: systemInstruction,
         responseMimeType: "application/json",
         responseSchema: recipeSchema,
-        temperature: 0.4, 
-        maxOutputTokens: 4000, 
+        temperature: 0.2, // Lower temp for valid JSON
+        // Removed maxOutputTokens to prevent truncation
       },
     });
 
@@ -125,6 +146,19 @@ export const generateRecipe = async (
     
     // Clean and Parse
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    // Aggressive JSON Repair: Fix missing commas often caused by LLM output
+    // 1. Strings in arrays: "item1" "item2" -> "item1", "item2"
+    text = text.replace(/"\s+(?=")/g, '", "');
+    // 2. Objects in arrays: } { -> }, {
+    text = text.replace(/}\s+(?={)/g, '}, {');
+    // 3. Property start after object end: } "key" -> }, "key"
+    text = text.replace(/}\s+(?=")/g, '}, "');
+    // 4. Property start after array end: ] "key" -> ], "key"
+    text = text.replace(/]\s+(?=")/g, '], "');
+    // 5. Value followed by key (missing comma): 123 "key" or true "key"
+    text = text.replace(/(\d+|true|false|null)\s+(?=")/g, '$1, "');
+
     const startIndex = text.indexOf('{');
     const endIndex = text.lastIndexOf('}');
     if (startIndex !== -1 && endIndex !== -1) text = text.substring(startIndex, endIndex + 1);
@@ -150,8 +184,8 @@ export const generateRecipe = async (
 
   } catch (error: any) {
     console.error("Error generating recipe:", error);
-    if (error.message?.includes("Unterminated")) {
-       throw new Error("Generation timed out. Try a simpler request.");
+    if (error.message?.includes("Unterminated") || error.message?.includes("Expected ','") || error.message?.includes("JSON")) {
+       throw new Error("Generation produced invalid JSON. Please try again.");
     }
     throw error;
   }
@@ -175,5 +209,32 @@ export const generateDishImage = async (title: string, description: string): Pro
   } catch (error) {
     console.error("Error generating image:", error);
     return null;
+  }
+};
+
+export const categorizeGroceries = async (items: string[], availableLocations: string[]): Promise<Record<string, string>> => {
+  const ai = new GoogleGenAI({ apiKey: currentApiKey });
+  
+  const prompt = `
+    I have these grocery items: ${JSON.stringify(items)}.
+    I have these storage locations: ${JSON.stringify(availableLocations)}.
+    
+    Return a JSON object where the keys are the grocery items and the values are the best matching location name.
+    Example output: { "Milk": "Fridge", "Canned Beans": "Pantry" }.
+    Return only JSON.
+  `;
+
+  try {
+      const response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { responseMimeType: "application/json" }
+      });
+      
+      const text = response.text || "{}";
+      return JSON5.parse(text);
+  } catch (e) {
+      console.error("Error sorting groceries", e);
+      return {};
   }
 };

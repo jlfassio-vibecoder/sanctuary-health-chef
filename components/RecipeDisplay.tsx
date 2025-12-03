@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Recipe, RecipeSection, UnitSystem } from '../types';
+import { Recipe, RecipeSection, UnitSystem, Ingredient } from '../types';
 import { saveRecipeToDb } from '../services/dbService';
 import { generateDishImage } from '../services/geminiService';
-import { Clock, Flame, CheckCircle2, ChefHat, Timer, AlertTriangle, ChevronLeft, ChevronRight, Activity, CloudUpload, Utensils, RefreshCw, Loader2 } from 'lucide-react';
+import { ShoppingAuditModal } from './ShoppingAuditModal';
+import { Clock, Flame, CheckCircle2, ChefHat, Timer, AlertTriangle, ChevronLeft, ChevronRight, Activity, CloudUpload, Utensils, RefreshCw, Loader2, ShoppingCart } from 'lucide-react';
 
 interface Props {
   plan: Recipe;
@@ -26,6 +27,9 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
   
   const [dishImage, setDishImage] = useState<string | null>(localRecipe.imageUrl || null);
   const [isImageLoading, setIsImageLoading] = useState(false);
+
+  // Audit State
+  const [showAudit, setShowAudit] = useState(false);
 
   // Flatten the Recipe Sections into a linear flow for the carousel
   const displaySteps: DisplayStep[] = [];
@@ -89,7 +93,17 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleNext, handlePrev]);
+
+  // Helper to extract all ingredients for the audit
+  const getAllIngredients = (): Ingredient[] => {
+      const all: Ingredient[] = [];
+      localRecipe.sections.forEach(s => {
+          if (s.ingredients) all.push(...s.ingredients);
+      });
+      return all;
+  };
 
   const activeStep = displaySteps[currentStepIndex];
 
@@ -157,26 +171,50 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
       if (step.type === 'Ingredients') {
           return (
               <div className="flex flex-col h-full p-2 md:p-6">
-                  <div className="flex items-center gap-3 mb-6 border-b border-slate-800 pb-4">
-                      <div className="p-3 bg-lime-500/10 rounded-xl">
-                          <Utensils className="w-8 h-8 text-lime-400" />
+                  <div className="flex items-center justify-between gap-3 mb-6 border-b border-slate-800 pb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="p-3 bg-lime-500/10 rounded-xl">
+                            <Utensils className="w-8 h-8 text-lime-400" />
+                        </div>
+                        <div>
+                            <h2 className="text-2xl md:text-3xl font-black text-white">{data.title}</h2>
+                            <p className="text-slate-400 text-sm">Gather everything before you start.</p>
+                        </div>
                       </div>
-                      <div>
-                          <h2 className="text-2xl md:text-3xl font-black text-white">{data.title}</h2>
-                          <p className="text-slate-400 text-sm">Gather everything before you start.</p>
-                      </div>
+                      
+                      {/* Add To Shopping List Button */}
+                      <button 
+                        onClick={() => setShowAudit(true)}
+                        className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-lime-400 border border-slate-700 p-3 rounded-xl transition-all shadow-sm"
+                        title="Add to Shopping List"
+                      >
+                          <ShoppingCart className="w-6 h-6" />
+                      </button>
                   </div>
                   
                   <div className="overflow-y-auto pr-2 custom-scrollbar flex-grow">
-                      {(data.items && data.items.length > 0) ? (
+                      {(data.ingredients && data.ingredients.length > 0) ? (
                         <ul className="space-y-3">
+                            {data.ingredients.map((ing, i) => (
+                                <li key={i} className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-800 hover:border-lime-500/30 transition-colors">
+                                    <div className="mt-1 w-2 h-2 rounded-full bg-lime-500 shrink-0" />
+                                    <div>
+                                        <span className="text-slate-200 text-lg leading-relaxed font-medium">{ing.item}</span>
+                                        <div className="text-sm text-slate-500">{ing.quantity} {ing.unit} • {ing.prep}</div>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                      ) : (data.items && data.items.length > 0) ? (
+                         // Fallback for legacy recipes without structured ingredients
+                         <ul className="space-y-3">
                             {data.items.map((ingredient, i) => (
                                 <li key={i} className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-800 hover:border-lime-500/30 transition-colors">
                                     <div className="mt-1 w-2 h-2 rounded-full bg-lime-500 shrink-0" />
                                     <span className="text-slate-200 text-lg leading-relaxed">{ingredient}</span>
                                 </li>
                             ))}
-                        </ul>
+                         </ul>
                       ) : (
                         <div className="flex flex-col items-center justify-center h-full text-slate-500">
                              <AlertTriangle className="w-10 h-10 mb-2 opacity-50" />
@@ -235,6 +273,15 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
 
   return (
     <div className="animate-in slide-in-from-bottom-8 duration-700 pb-20 pt-4">
+      {showAudit && (
+          <ShoppingAuditModal 
+            userId={userId}
+            recipeId={localRecipe.id}
+            ingredients={getAllIngredients()}
+            onClose={() => setShowAudit(false)}
+          />
+      )}
+
       <div className="flex justify-between items-center mb-6">
            <button 
               onClick={handleFullSave}

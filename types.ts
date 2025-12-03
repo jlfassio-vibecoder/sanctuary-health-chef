@@ -60,6 +60,13 @@ export const TRAINER_FOCUS_OPTIONS: Record<TrainerType, string[]> = {
 
 // --- NEW RECIPE SCHEMA ---
 
+export interface Ingredient {
+  item: string;
+  quantity: string;
+  unit: string;
+  prep: string;
+}
+
 export interface RecipeStepMeta {
     timer?: string;     // e.g. "10 mins"
     technique?: string; // e.g. "Julienne", "High Heat"
@@ -69,7 +76,8 @@ export interface RecipeStepMeta {
 export interface RecipeSection {
     type: 'Overview' | 'Ingredients' | 'Instructions';
     title: string;      // "Mise en Place", "Step 1: Chop", etc.
-    items: string[];    // Ingredient list OR Instruction text
+    items: string[];    // Legacy support for plain text display
+    ingredients?: Ingredient[]; // Structured data
     metadata: RecipeStepMeta; 
 }
 
@@ -87,4 +95,38 @@ export interface Recipe {
     imageUrl?: string;
     createdAt?: string;
     sections: RecipeSection[];
+}
+
+// --- INVENTORY & SHOPPING SCHEMA ---
+
+export interface Location {
+    id: string;
+    name: string;
+    icon?: string;
+}
+
+export interface InventoryItem {
+  id: string; // user_inventory_id
+  ingredientId: string; // canonical_id
+  name: string;
+  locationId?: string;
+  locationName?: string; // For display
+  category?: string; // Produce, Dairy, etc.
+  inStock: boolean;
+}
+
+export interface ShoppingListItem {
+    id: string;
+    ingredientId: string;
+    name: string;
+    isChecked: boolean;
+}
+
+export interface AuditItem {
+  name: string; // Display name from Recipe
+  canonicalId?: string; // Matched ID (if any)
+  qty: string;
+  unit: string;
+  inStock: boolean; // The toggle state
+  inventoryId?: string; // If exists in DB
 }
