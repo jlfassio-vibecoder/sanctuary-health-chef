@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import JSON5 from 'json5';
 import { UserProfile, DailyContext, TrainerType, Recipe } from "../types";
@@ -158,6 +157,8 @@ export const generateRecipe = async (
     text = text.replace(/]\s+(?=")/g, '], "');
     // 5. Value followed by key (missing comma): 123 "key" or true "key"
     text = text.replace(/(\d+|true|false|null)\s+(?=")/g, '$1, "');
+    // 6. Primitives in arrays (missing comma): 1 2 -> 1, 2
+    text = text.replace(/(\d+|true|false|null)\s+(?=\d+|true|false|null)/g, '$1, ');
 
     const startIndex = text.indexOf('{');
     const endIndex = text.lastIndexOf('}');
@@ -168,7 +169,12 @@ export const generateRecipe = async (
         recipe = JSON5.parse(text) as Recipe;
     } catch (e) {
         console.warn("JSON5 failed, trying standard JSON", e);
-        recipe = JSON.parse(text);
+        try {
+            recipe = JSON.parse(text);
+        } catch (jsonError) {
+            console.error("JSON parse failed. Raw text:", text);
+            throw jsonError;
+        }
     }
     
     // Validation

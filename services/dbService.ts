@@ -54,7 +54,10 @@ const extractErrorMessage = (error: any): string => {
     if (!error) return "Unknown error";
     
     // 1. If it's already a string
-    if (typeof error === 'string') return error;
+    if (typeof error === 'string') {
+        if (error.includes('[object Object]')) return "An unexpected object error occurred.";
+        return error;
+    }
 
     // 2. If it's an Error object
     if (error instanceof Error) return error.message;
@@ -69,14 +72,14 @@ const extractErrorMessage = (error: any): string => {
              return msg;
         }
         
-        // Try JSON stringify as last resort
+        // Try JSON stringify as last resort, avoiding [object Object] output
         try {
             const json = JSON.stringify(error);
             if (json !== '{}' && !json.includes('[object Object]')) return json;
         } catch (e) {}
     }
     
-    return "An unexpected error occurred. Please check the console.";
+    return "An unexpected error occurred. Please check console for details.";
 };
 
 /**
@@ -365,8 +368,8 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
     // Detailed Error Reporting
     const msg = extractErrorMessage(error);
     
-    if (msg && (msg.includes('column "ingredients"') || msg.includes("ingredients"))) {
-        alert("Database Schema Mismatch: The 'ingredients' column is missing in 'recipe_content'.\n\nPlease go to Settings > 'Copy Full Database Schema' and run it in the Supabase SQL Editor to fix this.");
+    if (msg && (msg.includes('column "ingredients"') || msg.includes("ingredients") || msg.includes('does not exist'))) {
+        alert("Database Schema Mismatch: The 'ingredients' column is missing in 'recipe_content' or a table is missing.\n\nPlease go to Settings > 'Copy Full Database Schema' and run it in the Supabase SQL Editor to fix this.");
     } else {
         alert(`Failed to save recipe: ${msg}`);
     }

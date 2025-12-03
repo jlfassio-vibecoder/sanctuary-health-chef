@@ -9,6 +9,7 @@ import { AuthPage } from './components/AuthPage';
 import { AccountPage } from './components/AccountPage';
 import { generateRecipe, updateGeminiApiKey, getGeminiApiKey } from './services/geminiService';
 import { verifyDatabaseSchema, getUserProfile, saveUserProfile, supabase } from './services/dbService';
+import { ssoReceiver } from './services/SSOReceiver';
 import { UserProfile, DailyContext, TrainerType, Recipe } from './types';
 import { ChefHat, BookOpen, Database, AlertTriangle, Loader2, Settings, X, Key, Copy, User, ShoppingCart, Archive } from 'lucide-react';
 
@@ -47,22 +48,31 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [tempApiKey, setTempApiKey] = useState('');
 
-  // 1. Auth
+  // 1. Auth & SSO
   useEffect(() => {
+    // Initialize SSO Receiver
+    ssoReceiver.initialize();
+
     if (!supabase) {
         setLoadingSession(false);
-        return;
+        return () => ssoReceiver.cleanup();
     }
+    
     supabase.auth.getSession().then(({ data: { session } }: any) => {
         setSession(session);
         setLoadingSession(false);
     });
+    
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: string, session: any) => {
         setSession(session);
         setLoadingSession(false);
         if (session) setCurrentView('generator');
     });
-    return () => subscription.unsubscribe();
+    
+    return () => {
+        subscription.unsubscribe();
+        ssoReceiver.cleanup();
+    };
   }, []);
 
   // 2. Load Data
