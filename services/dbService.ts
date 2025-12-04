@@ -705,7 +705,7 @@ export const getShoppingList = async (userId: string): Promise<ShoppingListItem[
         const { data, error } = await supabase
             .schema('chef')
             .from('shopping_list')
-            .select('id, is_purchased, ingredient_name')
+            .select('id, ingredient_id, is_purchased, ingredient_name')
             .eq('user_id', userId)
             .order('is_purchased', { ascending: true }); // Unpurchased first
 
@@ -713,7 +713,7 @@ export const getShoppingList = async (userId: string): Promise<ShoppingListItem[
 
         return data.map((d: any) => ({
             id: d.id,
-            ingredientName: d.ingredient_name,
+            ingredientId: d.ingredient_id || '', // Required for moveShoppingToInventory
             name: d.ingredient_name || 'Unknown Item',
             isChecked: d.is_purchased || false
         }));
