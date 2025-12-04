@@ -1,23 +1,39 @@
 import React from 'react';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { UserProfile } from '../types';
 import { ProfileSetup } from './ProfileSetup';
+import AccountInformation from './AccountInformation';
 import { LogOut, User, Mail, ShieldCheck } from 'lucide-react';
 import { supabase } from '../services/dbService';
 
 interface Props {
     userEmail?: string;
+    user?: SupabaseUser | null;
     profile: UserProfile;
     onSaveProfile: (p: UserProfile) => void;
 }
 
-export const AccountPage: React.FC<Props> = ({ userEmail, profile, onSaveProfile }) => {
+export const AccountPage: React.FC<Props> = ({ userEmail, user, profile, onSaveProfile }) => {
     const handleSignOut = async () => {
-        await supabase.auth.signOut();
+        console.log('🔐 AccountPage: Signing out...');
+        
+        // Sign out from Supabase
+        if (supabase) {
+            await supabase.auth.signOut();
+        }
+        
+        // Reload to reset app state
+        window.location.reload();
     };
 
     return (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-4xl mx-auto">
             <h2 className="text-3xl font-bold text-white mb-6">Account & Settings</h2>
+            
+            {/* Account Information Card - Shows User ID, Email, etc. */}
+            <div className="mb-6">
+                <AccountInformation user={user || null} />
+            </div>
             
             {/* Account Info Card */}
             <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden mb-8">

@@ -3,9 +3,20 @@ import JSON5 from 'json5';
 import { UserProfile, DailyContext, TrainerType, Recipe } from "../types";
 
 const STORAGE_KEY = 'GEMINI_API_KEY';
-const DEFAULT_KEY = 'AIzaSyCPgDl4SY_etT74EPzIU_iPxwfCFA-KEUk';
 
-let currentApiKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) || DEFAULT_KEY : DEFAULT_KEY;
+// Get API key from environment or localStorage
+const getDefaultKey = () => {
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) {
+      // @ts-ignore
+      return import.meta.env.VITE_GEMINI_API_KEY;
+    }
+  } catch (e) { /* ignore */ }
+  return '';
+};
+
+let currentApiKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) || getDefaultKey() : getDefaultKey();
 
 export const updateGeminiApiKey = (key: string) => {
   currentApiKey = key;
@@ -68,7 +79,7 @@ export const generateRecipe = async (
 ): Promise<Recipe> => {
   
   const ai = new GoogleGenAI({ apiKey: currentApiKey });
-  const unitLabel = profile.units === 'standard' ? 'imperial' : 'metric';
+  const unitLabel = profile.units.system;
   
   // Check for imported workout context passed via equipmentAvailable hack or cravings
   const workoutContext = daily.equipmentAvailable?.find(e => e.includes("Recovery Meal for:"));
