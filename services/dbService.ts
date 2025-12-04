@@ -705,17 +705,22 @@ export const getShoppingList = async (userId: string): Promise<ShoppingListItem[
         const { data, error } = await supabase
             .schema('chef')
             .from('shopping_list')
-            .select('id, ingredient_id, is_purchased, ingredient_name')
+            .select(`
+                id, 
+                ingredient_id,
+                is_checked,
+                canonical_ingredients ( name )
+            `)
             .eq('user_id', userId)
-            .order('is_purchased', { ascending: true }); // Unpurchased first
+            .order('is_checked', { ascending: true }); // Unchecked first
 
         if (error) throw error;
 
         return data.map((d: any) => ({
             id: d.id,
             ingredientId: d.ingredient_id || '', // Required for moveShoppingToInventory
-            name: d.ingredient_name || 'Unknown Item',
-            isChecked: d.is_purchased || false
+            name: d.canonical_ingredients?.name || 'Unknown Item',
+            isChecked: d.is_checked || false
         }));
     } catch (e) {
         console.error("Error fetching shopping list", e);
@@ -726,7 +731,7 @@ export const getShoppingList = async (userId: string): Promise<ShoppingListItem[
 // Phase 3: Toggle Item
 export const toggleShoppingItem = async (itemId: string, isChecked: boolean) => {
     if (!supabase) return;
-    await supabase.schema('chef').from('shopping_list').update({ is_purchased: isChecked }).eq('id', itemId);
+    await supabase.schema('chef').from('shopping_list').update({ is_checked: isChecked }).eq('id', itemId);
 };
 
 // Phase 3: Get Locations
@@ -820,9 +825,10 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
             .select(`
                 id, 
                 in_stock, 
-                ingredient_name,
+                ingredient_id,
                 quantity,
                 unit,
+                canonical_ingredients ( name ),
                 locations ( name, id )
             `)
             .eq('user_id', userId);
@@ -831,8 +837,8 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
 
         return data.map((row: any) => ({
             id: row.id,
-            ingredientName: row.ingredient_name,
-            name: row.ingredient_name || 'Unknown',
+            ingredientName: row.canonical_ingredients?.name || 'Unknown',
+            name: row.canonical_ingredients?.name || 'Unknown',
             quantity: row.quantity,
             unit: row.unit,
             locationId: row.locations?.id,
