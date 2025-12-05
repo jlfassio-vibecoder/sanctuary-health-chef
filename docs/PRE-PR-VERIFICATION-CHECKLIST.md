@@ -242,9 +242,9 @@ await supabase.schema('public').from('user_profiles').select('*')
 ### Environment Variables
 ```bash
 # Ensure .env.local has:
-VITE_SUPABASE_URL=https://tknkxfeyftgeicuosrhi.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJ... (full key)
-VITE_GEMINI_API_KEY=AIza... (full key)
+VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
+VITE_SUPABASE_ANON_KEY=your_anon_key_here
+VITE_GEMINI_API_KEY=your_gemini_api_key_here
 
 # ❌ Don't commit .env.local to git!
 # ✅ Do document required variables in README
@@ -381,9 +381,9 @@ If verification fails:
 Required in Vercel/hosting platform:
 
 ```bash
-VITE_SUPABASE_URL=https://tknkxfeyftgeicuosrhi.supabase.co
-VITE_SUPABASE_ANON_KEY=[Production anon key]
-VITE_GEMINI_API_KEY=[Production Gemini key]
+VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
+VITE_SUPABASE_ANON_KEY=your_production_anon_key
+VITE_GEMINI_API_KEY=your_production_gemini_key
 ```
 
 ## Additional Resources
