@@ -42,8 +42,12 @@ if (SUPABASE_URL && SUPABASE_KEY) {
         detectSessionInUrl: true,
       },
     });
-    console.log("✅ Supabase initialized (Multi-Schema):", SUPABASE_URL);
-    console.log("✅ Using chef schema for all recipe data");
+    
+    // Log initialization only in development
+    if (import.meta.env.DEV) {
+      console.log("✅ Supabase initialized (Multi-Schema):", SUPABASE_URL);
+      console.log("✅ Using chef schema for all recipe data");
+    }
   } catch (error) {
     console.error("❌ Error initializing Supabase client:", error);
   }
