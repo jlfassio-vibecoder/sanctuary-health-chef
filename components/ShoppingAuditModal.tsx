@@ -29,7 +29,8 @@ export const ShoppingAuditModal: React.FC<Props> = ({ ingredients, userId, recip
   const toggleItem = (index: number) => {
     setItems(prev => {
       const copy = [...prev];
-      copy[index].inStock = !copy[index].inStock;
+      const oldValue = copy[index].inStock;
+      copy[index] = { ...copy[index], inStock: !oldValue };
       return copy;
     });
   };
@@ -73,7 +74,7 @@ export const ShoppingAuditModal: React.FC<Props> = ({ ingredients, userId, recip
             </div>
           ) : (
             <div className="space-y-2">
-               {items.map((item, idx) => (
+               {items.length > 0 ? items.map((item, idx) => (
                  <div 
                     key={idx}
                     onClick={() => toggleItem(idx)}
@@ -105,7 +106,7 @@ export const ShoppingAuditModal: React.FC<Props> = ({ ingredients, userId, recip
                         {item.inStock ? 'Have it' : 'To Buy'}
                     </div>
                  </div>
-               ))}
+               )) : <p className="text-slate-400 text-center py-8">No items to display</p>}
             </div>
           )}
         </div>

@@ -89,15 +89,26 @@ export interface RecipeSection {
 export interface Recipe {
     id?: string;
     userId?: string;
-    title: string;
-    description: string;
-    difficulty: string;
-    chefNote: string;
-    totalTime: number;
-    calories: number;
-    cuisine: string;
-    chefPersona: string; // Formerly trainerType
-    imageUrl?: string;
+    title: string; // Database: name
+    description: string; // Database: description
+    difficulty: string; // Database: difficulty_level
+    chefNote: string; // Not in database
+    totalTime: number; // Calculated: prep_time + cook_time
+    prepTime?: number; // Database: prep_time_minutes
+    cookTime?: number; // Database: cook_time_minutes
+    calories: number; // Not in database - calculated from ingredients
+    protein?: number; // Not in database - calculated from ingredients
+    carbs?: number; // Not in database - calculated from ingredients
+    fat?: number; // Not in database - calculated from ingredients
+    mealType?: string; // Database: meal_type
+    servings?: number; // Database: servings
+    cuisine: string; // Database: cuisine_type
+    dietaryTags?: string[]; // Database: dietary_tags (JSONB array)
+    allergens?: string[]; // Database: allergens (JSONB array)
+    chefPersona: string; // Not in database - UI only
+    imageUrl?: string; // Database: image_url
+    isFavorite?: boolean; // Database: is_favorite
+    isPublic?: boolean; // Database: is_public
     createdAt?: string;
     sections: RecipeSection[];
 }
@@ -112,8 +123,11 @@ export interface Location {
 
 export interface InventoryItem {
   id: string; // user_inventory_id
-  ingredientId: string; // canonical_id
-  name: string;
+  ingredientId: string; // NOTE: Despite the name, this contains ingredient_name (TEXT), not a UUID
+                        // Kept for backward compatibility with existing code
+  name: string; // Ingredient name - use this field for display and logic
+  quantity?: number; // Database: quantity field
+  unit?: string; // Database: unit field
   locationId?: string;
   locationName?: string; // For display
   category?: string; // Produce, Dairy, etc.
@@ -122,8 +136,10 @@ export interface InventoryItem {
 
 export interface ShoppingListItem {
     id: string;
-    ingredientId: string;
-    name: string;
+    ingredientId: string; // NOTE: Despite the name, this contains ingredient_name (TEXT), not a UUID
+                          // Kept for backward compatibility with existing code
+                          // In practice, 'name' field should be used instead
+    name: string; // Ingredient name - use this field for display and logic
     isChecked: boolean;
 }
 

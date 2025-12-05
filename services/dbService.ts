@@ -279,6 +279,8 @@ const processRecipeIngredients = async (recipeId: string, sections: RecipeSectio
     const names = allIngredients.map(i => i.item.trim());
     
     // 2. Fetch existing canonical ingredients
+    // Note: We still maintain canonical_ingredients for consistency and use by other features
+    // (e.g., auditRecipeIngredients), even though recipe_ingredients now uses ingredient_name directly
     const { data: existingCanonical, error: fetchError } = await supabase
         .schema('chef')
         .from('canonical_ingredients')
@@ -295,6 +297,7 @@ const processRecipeIngredients = async (recipeId: string, sections: RecipeSectio
     existingCanonical?.forEach((row: any) => existingMap.set(row.name.toLowerCase(), row.id));
 
     // 3. Identify new ingredients to create
+    // Populate canonical_ingredients for consistency across the app (used by shopping audit, etc.)
     const newIngredients = names.filter(n => !existingMap.has(n.toLowerCase()));
     
     // Dedupe
@@ -313,17 +316,19 @@ const processRecipeIngredients = async (recipeId: string, sections: RecipeSectio
     }
 
     // 4. Create links in recipe_ingredients
+    // Database schema: recipe_id, ingredient_name (TEXT, not ID!), quantity, unit, notes
+    // Note: We use ingredient_name directly (not foreign key to canonical_ingredients)
+    // This is intentional - allows flexibility and avoids foreign key constraints
+    // All ingredients are valid; no filtering needed
     const linksToCreate = allIngredients.map(ing => {
-        const cId = existingMap.get(ing.item.trim().toLowerCase());
-        if (!cId) return null;
         return {
             recipe_id: recipeId,
-            ingredient_id: cId,
-            quantity_value: parseFloat(ing.quantity) || 0,
-            quantity_unit: ing.unit,
-            preparation_note: ing.prep
+            ingredient_name: ing.item.trim(), // Database uses ingredient_name (TEXT), not ingredient_id
+            quantity: parseFloat(ing.quantity) || null, // Database: 'quantity' not 'quantity_value'
+            unit: ing.unit || null, // Database: 'unit' not 'quantity_unit'
+            notes: ing.prep || null // Database: 'notes' not 'preparation_note'
         };
-    }).filter(x => x !== null);
+    });
 
     if (linksToCreate.length > 0) {
         await supabase.schema('chef').from('recipe_ingredients').insert(linksToCreate);
@@ -342,18 +347,49 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
     let recipeId = recipe.id;
 
     // 1. Insert/Update Parent Recipe Table
+    // Map Recipe object fields to actual database columns
+    
+    // Normalize difficulty to match database constraint (easy, medium, hard)
+    const normalizeDifficulty = (diff: string): string | null => {
+      if (!diff) return null;
+      const lower = diff.toLowerCase();
+      if (lower.includes('easy') || lower.includes('beginner')) return 'easy';
+      if (lower.includes('medium') || lower.includes('intermediate')) return 'medium';
+      if (lower.includes('hard') || lower.includes('advanced') || lower.includes('difficult')) return 'hard';
+      return null; // Invalid value - set to null
+    };
+    
+    // Normalize meal_type to match database constraint
+    const normalizeMealType = (mealType: string | undefined): string | null => {
+      if (!mealType) return null;
+      const lower = mealType.toLowerCase().replace(/\s+/g, '_');
+      const validTypes = ['breakfast', 'lunch', 'dinner', 'snack', 'pre_workout', 'post_workout'];
+      // Check if it matches one of the valid types (exact match or contains)
+      for (const validType of validTypes) {
+        if (lower === validType || lower.includes(validType)) return validType;
+      }
+      return null; // Invalid value - set to null
+    };
+    
     const recipePayload = {
       user_id: userId,
-      title: recipe.title,
-      description: recipe.description,
-      difficulty: recipe.difficulty,
-      chef_note: recipe.chefNote,
-      total_time: recipe.totalTime,
-      calories: recipe.calories,
-      cuisine: recipe.cuisine,
-      chef_persona: recipe.chefPersona,
-      image_url: recipe.imageUrl,
-      created_at: recipe.createdAt || new Date().toISOString()
+      name: recipe.title, // Database: 'name'
+      description: recipe.description || null, // Database: 'description'
+      meal_type: normalizeMealType(recipe.mealType), // Database: 'meal_type' (breakfast|lunch|dinner|snack|pre_workout|post_workout)
+      cuisine_type: recipe.cuisine || null, // Database: 'cuisine_type' not 'cuisine'
+      servings: recipe.servings || 1, // Database: 'servings'
+      prep_time_minutes: recipe.prepTime || null, // Database: 'prep_time_minutes'
+      cook_time_minutes: recipe.cookTime || null, // Database: 'cook_time_minutes'
+      difficulty_level: normalizeDifficulty(recipe.difficulty), // Database: 'difficulty_level' (easy|medium|hard only)
+      dietary_tags: recipe.dietaryTags || [], // Database: 'dietary_tags' (JSONB)
+      allergens: recipe.allergens || [], // Database: 'allergens' (JSONB)
+      image_url: recipe.imageUrl || null, // Database: 'image_url'
+      is_favorite: recipe.isFavorite || false, // Database: 'is_favorite'
+      is_public: recipe.isPublic || false, // Database: 'is_public'
+      created_at: recipe.createdAt || new Date().toISOString(),
+      updated_at: new Date().toISOString()
+      // Note: Nutrition data (calories, protein, carbs, fat) and chef_persona are NOT in database
+      // These are calculated/displayed in the UI only
     };
 
     let data, error;
@@ -377,16 +413,33 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
     // Delete existing content for this recipe to replace with new state
     await supabase.schema('chef').from('recipe_content').delete().eq('recipe_id', recipeId);
     
-    // Sanitize and map content
-    const contentToInsert = recipe.sections.map((section, index) => ({
-      recipe_id: recipeId,
-      section_type: section.type,
-      title: section.title,
-      items: section.items || [], // Ensure array
-      ingredients: section.ingredients || [], // Ensure array for JSONB (or [] if undefined)
-      metadata: section.metadata || {}, // Ensure object
-      order_index: index
-    }));
+    // Map sections to database schema
+    // Database schema: recipe_id, section_type, content, order_index
+    // section_type constraint: 'instructions' | 'notes' | 'tips' | 'nutrition'
+    const contentToInsert = recipe.sections.map((section, index) => {
+      // Normalize section type to match database constraint
+      let sectionType = 'notes'; // Default fallback
+      const typeLower = section.type.toLowerCase();
+      if (typeLower.includes('instruction') || typeLower.includes('step')) sectionType = 'instructions';
+      else if (typeLower.includes('ingredient')) sectionType = 'notes'; // Store ingredients as notes
+      else if (typeLower.includes('tip')) sectionType = 'tips';
+      else if (typeLower.includes('nutrition')) sectionType = 'nutrition';
+      
+      // Serialize all section data as JSON in the content field
+      const contentData = {
+        title: section.title,
+        items: section.items || [],
+        ingredients: section.ingredients || [],
+        metadata: section.metadata || {}
+      };
+      
+      return {
+        recipe_id: recipeId,
+        section_type: sectionType,
+        content: JSON.stringify(contentData), // Store structured data as JSON text
+        order_index: index
+      };
+    });
 
     const { error: contentError } = await supabase.schema('chef').from('recipe_content').insert(contentToInsert);
     if (contentError) throw contentError;
@@ -450,25 +503,53 @@ export const getSavedRecipes = async (userId: string): Promise<Recipe[]> => {
         const fullRecipes: Recipe[] = recipesData.map((r: any) => {
             const thisContent = contentData.filter((c: any) => c.recipe_id === r.id);
             
-            const sections: RecipeSection[] = thisContent.map((c: any) => ({
-                type: c.section_type,
-                title: c.title,
-                items: c.items || [],
-                ingredients: c.ingredients, // Retrieve JSONB
-                metadata: c.metadata || {}
-            }));
+            const sections: RecipeSection[] = thisContent.map((c: any) => {
+                // Parse JSON content back into structured data
+                let parsedContent: any = {};
+                try {
+                    parsedContent = JSON.parse(c.content || '{}');
+                } catch (e) {
+                    console.warn('Failed to parse recipe content JSON:', e);
+                }
+                
+                // Map section_type back to original type naming
+                let type: 'Overview' | 'Ingredients' | 'Instructions' = 'Instructions';
+                if (c.section_type === 'instructions') type = 'Instructions';
+                else if (c.section_type === 'notes') type = 'Ingredients'; // We stored ingredients as notes
+                else if (c.section_type === 'tips') type = 'Overview';
+                
+                return {
+                    type: type,
+                    title: parsedContent.title || '',
+                    items: parsedContent.items || [],
+                    ingredients: parsedContent.ingredients || [],
+                    metadata: parsedContent.metadata || {}
+                };
+            });
 
+            // Map database columns to Recipe interface fields
             return {
                 id: r.id,
-                title: r.title,
-                description: r.description,
-                difficulty: r.difficulty,
-                chefNote: r.chef_note,
-                totalTime: r.total_time,
-                calories: r.calories,
-                cuisine: r.cuisine,
-                chefPersona: r.chef_persona,
-                imageUrl: r.image_url,
+                title: r.name || '', // Database: 'name'
+                description: r.description || '', // Database: 'description'
+                difficulty: r.difficulty_level || '', // Database: 'difficulty_level'
+                chefNote: '', // Not stored in database
+                totalTime: (r.prep_time_minutes || 0) + (r.cook_time_minutes || 0),
+                prepTime: r.prep_time_minutes || 0,
+                cookTime: r.cook_time_minutes || 0,
+                calories: 0, // Not in database - calculated from ingredients
+                protein: 0, // Not in database - calculated from ingredients
+                carbs: 0, // Not in database - calculated from ingredients
+                fat: 0, // Not in database - calculated from ingredients
+                mealType: r.meal_type || '',
+                cuisine: r.cuisine_type || '', // Database: 'cuisine_type'
+                servings: r.servings || 1,
+                dietaryTags: r.dietary_tags || [], // Database: JSONB array
+                allergens: r.allergens || [], // Database: JSONB array
+                chefPersona: '', // Not in database
+                imageUrl: r.image_url || '',
+                isFavorite: r.is_favorite || false,
+                isPublic: r.is_public || false,
                 createdAt: r.created_at,
                 sections: sections
             };
@@ -569,22 +650,24 @@ export const auditRecipeIngredients = async (userId: string, ingredients: Ingred
         canonicalMatches?.forEach((r: any) => nameToIdMap.set(r.name.toLowerCase(), r.id));
 
         // 2. Fetch User's Inventory (What they already have)
-        // We fetch everything in stock for simplicity in V1, or we could filter by IDs found above
+        // Database schema: user_inventory has ingredient_name (TEXT), no in_stock column
         const { data: inventoryData, error: invError } = await supabase
             .schema('chef')
             .from('user_inventory')
-            .select('ingredient_id, in_stock, id')
-            .eq('user_id', userId)
-            .eq('in_stock', true);
+            .select('ingredient_name, id')
+            .eq('user_id', userId);
         
         if (invError) throw invError;
         
-        const inventorySet = new Set<string>(); // Set of canonical IDs in stock
-        const inventoryIdMap = new Map<string, string>(); // Map canonical ID -> Inventory Row ID
+        const inventorySet = new Set<string>(); // Set of ingredient names in stock
+        const inventoryIdMap = new Map<string, string>(); // Map ingredient name -> Inventory Row ID
 
         inventoryData?.forEach((inv: any) => {
-            inventorySet.add(inv.ingredient_id);
-            inventoryIdMap.set(inv.ingredient_id, inv.id);
+            const normalizedName = inv.ingredient_name?.toLowerCase();
+            if (normalizedName) {
+                inventorySet.add(normalizedName); // Store names, not IDs
+                inventoryIdMap.set(normalizedName, inv.id); // Map name -> inventory row ID
+            }
         });
 
         // 3. Build the Audit List
@@ -592,15 +675,15 @@ export const auditRecipeIngredients = async (userId: string, ingredients: Ingred
             const normalizedName = ing.item.trim().toLowerCase();
             const canonicalId = nameToIdMap.get(normalizedName);
             
-            // It is in stock if we found a canonical ID AND that ID is in the inventory set
-            const hasInStock = canonicalId ? inventorySet.has(canonicalId) : false;
+            // Check if ingredient name is in inventory
+            const hasInStock = inventorySet.has(normalizedName);
 
             return {
                 name: ing.item,
                 qty: ing.quantity,
                 unit: ing.unit,
                 canonicalId: canonicalId,
-                inventoryId: canonicalId ? inventoryIdMap.get(canonicalId) : undefined,
+                inventoryId: inventoryIdMap.get(normalizedName), // Get inventory ID by name
                 inStock: hasInStock
             };
         });
@@ -621,7 +704,7 @@ export const auditRecipeIngredients = async (userId: string, ingredients: Ingred
 
 /**
  * Phase 2: Commit Audit
- * 1. Checked items -> Update user_inventory (Set in_stock = true)
+ * 1. Checked items -> Update user_inventory
  * 2. Unchecked items -> Add to shopping_list
  */
 export const commitShoppingAudit = async (userId: string, auditItems: AuditItem[], recipeId?: string): Promise<boolean> => {
@@ -629,71 +712,91 @@ export const commitShoppingAudit = async (userId: string, auditItems: AuditItem[
 
     try {
         // A. Separate Checked (In Inventory) vs Unchecked (Need to Buy)
-        const inStockItems = auditItems.filter(i => i.inStock && i.canonicalId);
+        const inStockItems = auditItems.filter(i => i.inStock);
         const toBuyItems = auditItems.filter(i => !i.inStock);
 
         // B. Update Inventory (Upsert)
+        // Database schema: uses ingredient_name (TEXT), no in_stock column
         if (inStockItems.length > 0) {
-            // We need to ensure these exist in inventory. 
-            // If they have an existing inventoryId, update. If not, insert.
             const inventoryUpserts = inStockItems.map(item => ({
                 user_id: userId,
-                ingredient_id: item.canonicalId,
-                in_stock: true,
-                // If we know the ID, we could use it, but upserting on (user_id, ingredient_id) is safer if constraint exists
-                // Assuming we added a unique constraint on user_id + ingredient_id in the setup script
+                ingredient_name: item.name // Use name instead of canonicalId
+                // Note: No in_stock column in database
             }));
             
-            // Note: If you didn't add a unique constraint on user_id+ingredient_id, upsert might duplicate.
-            // Phase 2 setup script should have: create unique index ... on user_inventory(user_id, ingredient_id);
+            // Database has unique constraint on (user_id, ingredient_name)
             const { error: invError } = await supabase
                 .schema('chef')
                 .from('user_inventory')
-                .upsert(inventoryUpserts, { onConflict: 'user_id, ingredient_id' });
+                .upsert(inventoryUpserts, { onConflict: 'user_id,ingredient_name' });
             
             if (invError) console.error("Inventory update error:", invError);
         }
 
-        // C. Add to Shopping List
+        // C. Add to Shopping List with Deduplication
+        // Database schema: uses ingredient_name (TEXT) and is_purchased (not is_checked)
+        // Uses partial unique index to prevent duplicate unpurchased items
         if (toBuyItems.length > 0) {
-            // We need canonical IDs for shopping list. 
-            // If an item doesn't have a canonical ID (because it's new/unmatched), we technically should create it first.
-            // For V1 speed, we will skip items without canonical ID or create them on the fly?
-            // Let's create them on the fly for robustness.
+            // Fetch existing unpurchased items for these ingredients
+            const ingredientNames = toBuyItems.map(i => i.name);
+            const { data: existing } = await supabase
+                .schema('chef')
+                .from('shopping_list')
+                .select('*')
+                .eq('user_id', userId)
+                .eq('is_purchased', false)
+                .in('ingredient_name', ingredientNames);
             
-            const missingCanonical = toBuyItems.filter(i => !i.canonicalId);
-            if (missingCanonical.length > 0) {
-                // Bulk insert new canonicals
-                const { data: newCanonicals } = await supabase
-                    .schema('chef')
-                    .from('canonical_ingredients')
-                    .insert(missingCanonical.map(i => ({ name: i.name, category: 'General' })))
-                    .select('id, name');
+            // Create a map of existing items (normalized by lowercase name)
+            const existingMap = new Map<string, any>(
+                (existing || []).map((item: any) => [item.ingredient_name.toLowerCase(), item])
+            );
+            
+            // Merge new items with existing, handling unit mismatches
+            const upsertPayload = toBuyItems.map(item => {
+                const existingItem = existingMap.get(item.name.toLowerCase());
                 
-                // Map back
-                newCanonicals?.forEach((nc: any) => {
-                    const match = toBuyItems.find(i => i.name === nc.name);
-                    if (match) match.canonicalId = nc.id;
-                });
-            }
-
-            // Now insert to shopping list
-            const shoppingListPayload = toBuyItems
-                .filter(i => i.canonicalId) // Only those with valid IDs
-                .map(item => ({
-                    user_id: userId,
-                    ingredient_id: item.canonicalId,
-                    recipe_id: recipeId || null,
-                    is_checked: false
-                }));
-
-            if (shoppingListPayload.length > 0) {
-                const { error: shopError } = await supabase
-                    .schema('chef')
-                    .from('shopping_list')
-                    .insert(shoppingListPayload);
-                if (shopError) throw shopError;
-            }
+                if (existingItem && existingItem.unit === item.unit) {
+                    // Units match - sum quantities
+                    return {
+                        ...existingItem,
+                        quantity: (existingItem.quantity || 0) + (parseFloat(item.qty) || 0),
+                        recipe_id: null // Multiple recipes
+                    };
+                } else if (existingItem && existingItem.unit !== item.unit) {
+                    // Units don't match - keep both quantities visible
+                    // Strategy: Add quantities as text to preserve both measurements
+                    // Example: "2 cups + 500 grams" 
+                    // This prevents data loss when units can't be directly compared
+                    const existingQty = existingItem.quantity ? `${existingItem.quantity} ${existingItem.unit || ''}`.trim() : '';
+                    const newQty = item.qty ? `${item.qty} ${item.unit || ''}`.trim() : '';
+                    const combinedQty = existingQty && newQty ? `${existingQty} + ${newQty}` : (newQty || existingQty);
+                    
+                    return {
+                        ...existingItem,
+                        quantity: null, // Clear numeric quantity since we have mixed units
+                        unit: combinedQty, // Store combined quantities in unit field for display
+                        recipe_id: null // Multiple recipes
+                    };
+                } else {
+                    // New item - first time adding this ingredient
+                    return {
+                        user_id: userId,
+                        ingredient_name: item.name,
+                        recipe_id: recipeId || null,
+                        is_purchased: false,
+                        quantity: parseFloat(item.qty) || null,
+                        unit: item.unit || null
+                    };
+                }
+            });
+            
+            const { error: shopError } = await supabase
+                .schema('chef')
+                .from('shopping_list')
+                .upsert(upsertPayload, { onConflict: 'user_id,ingredient_name' });
+            
+            if (shopError) throw shopError;
         }
 
         return true;
@@ -707,35 +810,28 @@ export const commitShoppingAudit = async (userId: string, auditItems: AuditItem[
 export const getShoppingList = async (userId: string): Promise<ShoppingListItem[]> => {
     if (!supabase) return [];
     try {
+        // Database schema: shopping_list has ingredient_name (TEXT), not ingredient_id
         const { data, error } = await supabase
             .schema('chef')
             .from('shopping_list')
             .select(`
                 id, 
-                ingredient_id,
-                is_checked,
-                canonical_ingredients ( name )
+                ingredient_name,
+                is_purchased
             `)
             .eq('user_id', userId)
-            .order('is_checked', { ascending: true }); // Unchecked first
+            .order('is_purchased', { ascending: true }); // Unpurchased first
 
         if (error) throw error;
 
-        // Filter out invalid items and log warnings
-        return data
-            .filter((d: any) => {
-                if (!d.ingredient_id) {
-                    console.warn(`⚠️ Shopping list item ${d.id} missing ingredient_id - skipping`);
-                    return false;
-                }
-                return true;
-            })
-            .map((d: any) => ({
-                id: d.id,
-                ingredientId: d.ingredient_id, // Guaranteed to exist after filter
-                name: d.canonical_ingredients?.name || 'Unknown Item',
-                isChecked: d.is_checked || false
-            }));
+        // Map ingredient_name to the expected format
+        return data.map((d: any) => ({
+            id: d.id,
+            ingredientId: d.ingredient_name || '', // Legacy field: contains ingredient name (not UUID)
+                                                     // Kept for backward compatibility
+            name: d.ingredient_name || 'Unknown Item', // Use this field for ingredient name
+            isChecked: d.is_purchased || false
+        }));
     } catch (e) {
         console.error("Error fetching shopping list", e);
         return [];
@@ -745,7 +841,8 @@ export const getShoppingList = async (userId: string): Promise<ShoppingListItem[
 // Phase 3: Toggle Item
 export const toggleShoppingItem = async (itemId: string, isChecked: boolean) => {
     if (!supabase) return;
-    await supabase.schema('chef').from('shopping_list').update({ is_checked: isChecked }).eq('id', itemId);
+    // Database uses is_purchased, not is_checked
+    await supabase.schema('chef').from('shopping_list').update({ is_purchased: isChecked }).eq('id', itemId);
 };
 
 // Phase 3: Get Locations
@@ -781,22 +878,27 @@ export const moveShoppingToInventory = async (
     
     try {
         // 1. Prepare Inventory Upserts
-        const upserts = itemsToMove.map(item => {
+        // Database schema: user_inventory uses ingredient_name (TEXT), has in_stock column
+        // Deduplicate items by ingredient_name (keep last location for duplicates)
+        const uniqueItems = new Map<string, any>();
+        itemsToMove.forEach(item => {
             const locId = locationMap[item.name];
-            return {
+            uniqueItems.set(item.name.toLowerCase(), {
                 user_id: userId,
-                ingredient_id: item.ingredientId,
-                in_stock: true,
-                location_id: locId
-            };
+                ingredient_name: item.name,
+                location_id: locId,
+                in_stock: true // Mark as in stock when moving from shopping to inventory
+            });
         });
+        
+        const upserts = Array.from(uniqueItems.values());
 
         // 2. Upsert to Inventory
-        // This requires a unique constraint on (user_id, ingredient_id) to work as an upsert.
+        // Database has unique constraint on (user_id, ingredient_name)
         const { error: invError } = await supabase
             .schema('chef')
             .from('user_inventory')
-            .upsert(upserts, { onConflict: 'user_id, ingredient_id' });
+            .upsert(upserts, { onConflict: 'user_id,ingredient_name' });
         
         if (invError) throw invError;
 
@@ -813,13 +915,7 @@ export const moveShoppingToInventory = async (
         return { success: true };
     } catch (e: any) {
         console.error("Error moving to inventory", e);
-        let msg = extractErrorMessage(e);
-
-        // User-friendly hint for the common "missing constraint" error
-        if (msg.includes("ON CONFLICT") || msg.includes("unique constraint") || msg.includes("PGRST204")) {
-            msg = "Database Schema Issue: The system cannot update existing inventory items because a unique constraint is missing. Please go to Settings > 'Copy Full Database Schema' and run it in the Supabase SQL Editor.";
-        }
-        
+        const msg = extractErrorMessage(e);
         return { success: false, message: msg };
     }
 };
@@ -833,16 +929,16 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
     if (!supabase) return [];
 
     try {
+        // Database schema: user_inventory uses ingredient_name (TEXT), has in_stock column for staple management
         const { data, error } = await supabase
             .schema('chef')
             .from('user_inventory')
             .select(`
                 id, 
-                in_stock, 
-                ingredient_id,
+                ingredient_name,
                 quantity,
                 unit,
-                canonical_ingredients ( name ),
+                in_stock,
                 locations ( name, id )
             `)
             .eq('user_id', userId);
@@ -851,14 +947,14 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
 
         return data.map((row: any) => ({
             id: row.id,
-            ingredientId: row.ingredient_id, // Required for updateInventoryStatus
-            ingredientName: row.canonical_ingredients?.name || 'Unknown',
-            name: row.canonical_ingredients?.name || 'Unknown',
+            ingredientId: row.ingredient_name || '', // Use name for compatibility
+            ingredientName: row.ingredient_name || 'Unknown',
+            name: row.ingredient_name || 'Unknown',
             quantity: row.quantity,
             unit: row.unit,
             locationId: row.locations?.id,
             locationName: row.locations?.name || 'Unsorted',
-            inStock: row.in_stock
+            inStock: row.in_stock ?? true // Actual in_stock status from database
         }));
     } catch (e) {
         console.error("Error fetching inventory:", e);
@@ -867,6 +963,7 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
 };
 
 // Toggle Status (Deplete -> Auto Add to Shopping List)
+// Supports "Staple Management" - items remain in inventory when depleted
 export const updateInventoryStatus = async (
     userId: string, 
     inventoryItem: InventoryItem, 
@@ -875,39 +972,52 @@ export const updateInventoryStatus = async (
     if (!supabase) return false;
 
     try {
-        // 1. Update Inventory Table
-        const { error: invError } = await supabase
+        // Update in_stock status in user_inventory
+        // Items are NOT deleted - they remain visible as "Out of Stock" for staple management
+        const { error: updateError } = await supabase
             .schema('chef')
             .from('user_inventory')
             .update({ in_stock: newInStock })
             .eq('id', inventoryItem.id);
         
-        if (invError) throw invError;
+        if (updateError) throw updateError;
 
-        // 2. If Depleted (newInStock === false) -> Add to Shopping List
+        // If depleted, also add to shopping list for easy repurchase
         if (!newInStock) {
-            // Check if already on shopping list (unchecked)
-            const { data: existing } = await supabase
-                .schema('chef')
-                .from('shopping_list')
-                .select('id')
-                .eq('user_id', userId)
-                .eq('ingredient_id', inventoryItem.ingredientId)
-                .eq('is_checked', false)
-                .single();
-            
-            if (!existing) {
-                await supabase.schema('chef').from('shopping_list').insert({
-                    user_id: userId,
-                    ingredient_id: inventoryItem.ingredientId,
-                    is_checked: false
-                });
-            }
+            await supabase.schema('chef').from('shopping_list').upsert({
+                user_id: userId,
+                ingredient_name: inventoryItem.name,
+                is_purchased: false,
+                quantity: inventoryItem.quantity,
+                unit: inventoryItem.unit
+            }, { onConflict: 'user_id,ingredient_name' });
         }
 
         return true;
     } catch (e) {
         console.error("Error updating inventory status:", e);
+        return false;
+    }
+};
+
+// Update Inventory Item Location
+export const updateInventoryLocation = async (
+    inventoryItemId: string,
+    newLocationId: string | null
+): Promise<boolean> => {
+    if (!supabase) return false;
+    
+    try {
+        const { error } = await supabase
+            .schema('chef')
+            .from('user_inventory')
+            .update({ location_id: newLocationId })
+            .eq('id', inventoryItemId);
+        
+        if (error) throw error;
+        return true;
+    } catch (e) {
+        console.error("Error updating inventory location:", e);
         return false;
     }
 };
