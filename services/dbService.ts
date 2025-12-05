@@ -851,6 +851,7 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
 
         return data.map((row: any) => ({
             id: row.id,
+            ingredientId: row.ingredient_id, // Required for updateInventoryStatus
             ingredientName: row.canonical_ingredients?.name || 'Unknown',
             name: row.canonical_ingredients?.name || 'Unknown',
             quantity: row.quantity,
