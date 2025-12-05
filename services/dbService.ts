@@ -408,16 +408,33 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
     // Delete existing content for this recipe to replace with new state
     await supabase.schema('chef').from('recipe_content').delete().eq('recipe_id', recipeId);
     
-    // Sanitize and map content
-    const contentToInsert = recipe.sections.map((section, index) => ({
-      recipe_id: recipeId,
-      section_type: section.type,
-      title: section.title,
-      items: section.items || [], // Ensure array
-      ingredients: section.ingredients || [], // Ensure array for JSONB (or [] if undefined)
-      metadata: section.metadata || {}, // Ensure object
-      order_index: index
-    }));
+    // Map sections to database schema
+    // Database schema: recipe_id, section_type, content, order_index
+    // section_type constraint: 'instructions' | 'notes' | 'tips' | 'nutrition'
+    const contentToInsert = recipe.sections.map((section, index) => {
+      // Normalize section type to match database constraint
+      let sectionType = 'notes'; // Default fallback
+      const typeLower = section.type.toLowerCase();
+      if (typeLower.includes('instruction') || typeLower.includes('step')) sectionType = 'instructions';
+      else if (typeLower.includes('ingredient')) sectionType = 'notes'; // Store ingredients as notes
+      else if (typeLower.includes('tip')) sectionType = 'tips';
+      else if (typeLower.includes('nutrition')) sectionType = 'nutrition';
+      
+      // Serialize all section data as JSON in the content field
+      const contentData = {
+        title: section.title,
+        items: section.items || [],
+        ingredients: section.ingredients || [],
+        metadata: section.metadata || {}
+      };
+      
+      return {
+        recipe_id: recipeId,
+        section_type: sectionType,
+        content: JSON.stringify(contentData), // Store structured data as JSON text
+        order_index: index
+      };
+    });
 
     const { error: contentError } = await supabase.schema('chef').from('recipe_content').insert(contentToInsert);
     if (contentError) throw contentError;
@@ -481,13 +498,29 @@ export const getSavedRecipes = async (userId: string): Promise<Recipe[]> => {
         const fullRecipes: Recipe[] = recipesData.map((r: any) => {
             const thisContent = contentData.filter((c: any) => c.recipe_id === r.id);
             
-            const sections: RecipeSection[] = thisContent.map((c: any) => ({
-                type: c.section_type,
-                title: c.title,
-                items: c.items || [],
-                ingredients: c.ingredients, // Retrieve JSONB
-                metadata: c.metadata || {}
-            }));
+            const sections: RecipeSection[] = thisContent.map((c: any) => {
+                // Parse JSON content back into structured data
+                let parsedContent: any = {};
+                try {
+                    parsedContent = JSON.parse(c.content || '{}');
+                } catch (e) {
+                    console.warn('Failed to parse recipe content JSON:', e);
+                }
+                
+                // Map section_type back to original type naming
+                let type: 'Overview' | 'Ingredients' | 'Instructions' = 'Instructions';
+                if (c.section_type === 'instructions') type = 'Instructions';
+                else if (c.section_type === 'notes') type = 'Ingredients'; // We stored ingredients as notes
+                else if (c.section_type === 'tips') type = 'Overview';
+                
+                return {
+                    type: type,
+                    title: parsedContent.title || '',
+                    items: parsedContent.items || [],
+                    ingredients: parsedContent.ingredients || [],
+                    metadata: parsedContent.metadata || {}
+                };
+            });
 
             // Map database columns to Recipe interface fields
             return {
