@@ -345,21 +345,23 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
     // Map Recipe object fields to actual database columns
     const recipePayload = {
       user_id: userId,
-      name: recipe.title, // Database uses 'name' not 'title'
-      meal_type: recipe.mealType || null,
-      cuisine: recipe.cuisine || null,
-      servings: recipe.servings || 1,
-      prep_time_minutes: recipe.prepTime || null,
-      cook_time_minutes: recipe.cookTime || null,
-      total_calories: recipe.calories || null, // Database uses 'total_calories' not 'calories'
-      protein_grams: recipe.protein || null,
-      carbs_grams: recipe.carbs || null,
-      fat_grams: recipe.fat || null,
-      is_favorite: recipe.isFavorite || false,
-      is_public: recipe.isPublic || false,
-      chef_persona: recipe.chefPersona || null,
+      name: recipe.title, // Database: 'name'
+      description: recipe.description || null, // Database: 'description'
+      meal_type: recipe.mealType || null, // Database: 'meal_type'
+      cuisine_type: recipe.cuisine || null, // Database: 'cuisine_type' not 'cuisine'
+      servings: recipe.servings || 1, // Database: 'servings'
+      prep_time_minutes: recipe.prepTime || null, // Database: 'prep_time_minutes'
+      cook_time_minutes: recipe.cookTime || null, // Database: 'cook_time_minutes'
+      difficulty_level: recipe.difficulty || null, // Database: 'difficulty_level'
+      dietary_tags: recipe.dietaryTags || [], // Database: 'dietary_tags' (JSONB)
+      allergens: recipe.allergens || [], // Database: 'allergens' (JSONB)
+      image_url: recipe.imageUrl || null, // Database: 'image_url'
+      is_favorite: recipe.isFavorite || false, // Database: 'is_favorite'
+      is_public: recipe.isPublic || false, // Database: 'is_public'
       created_at: recipe.createdAt || new Date().toISOString(),
       updated_at: new Date().toISOString()
+      // Note: Nutrition data (calories, protein, carbs, fat) and chef_persona are NOT in database
+      // These are calculated/displayed in the UI only
     };
 
     let data, error;
@@ -467,22 +469,24 @@ export const getSavedRecipes = async (userId: string): Promise<Recipe[]> => {
             // Map database columns to Recipe interface fields
             return {
                 id: r.id,
-                title: r.name, // Database uses 'name' not 'title'
-                description: '', // Not stored in recipes table
-                difficulty: '', // Not stored in recipes table
-                chefNote: '', // Not stored in recipes table
-                totalTime: (r.prep_time_minutes || 0) + (r.cook_time_minutes || 0), // Combine prep + cook
+                title: r.name || '', // Database: 'name'
+                description: r.description || '', // Database: 'description'
+                difficulty: r.difficulty_level || '', // Database: 'difficulty_level'
+                chefNote: '', // Not stored in database
+                totalTime: (r.prep_time_minutes || 0) + (r.cook_time_minutes || 0),
                 prepTime: r.prep_time_minutes || 0,
                 cookTime: r.cook_time_minutes || 0,
-                calories: r.total_calories || 0, // Database uses 'total_calories'
-                protein: r.protein_grams || 0,
-                carbs: r.carbs_grams || 0,
-                fat: r.fat_grams || 0,
+                calories: 0, // Not in database - calculated from ingredients
+                protein: 0, // Not in database - calculated from ingredients
+                carbs: 0, // Not in database - calculated from ingredients
+                fat: 0, // Not in database - calculated from ingredients
                 mealType: r.meal_type || '',
-                cuisine: r.cuisine || '',
+                cuisine: r.cuisine_type || '', // Database: 'cuisine_type'
                 servings: r.servings || 1,
-                chefPersona: r.chef_persona || '',
-                imageUrl: '', // Not stored in recipes table
+                dietaryTags: r.dietary_tags || [], // Database: JSONB array
+                allergens: r.allergens || [], // Database: JSONB array
+                chefPersona: '', // Not in database
+                imageUrl: r.image_url || '',
                 isFavorite: r.is_favorite || false,
                 isPublic: r.is_public || false,
                 createdAt: r.created_at,

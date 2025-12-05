@@ -89,22 +89,24 @@ export interface RecipeSection {
 export interface Recipe {
     id?: string;
     userId?: string;
-    title: string;
-    description: string;
-    difficulty: string;
-    chefNote: string;
-    totalTime: number;
+    title: string; // Database: name
+    description: string; // Database: description
+    difficulty: string; // Database: difficulty_level
+    chefNote: string; // Not in database
+    totalTime: number; // Calculated: prep_time + cook_time
     prepTime?: number; // Database: prep_time_minutes
     cookTime?: number; // Database: cook_time_minutes
-    calories: number; // Database: total_calories
-    protein?: number; // Database: protein_grams
-    carbs?: number; // Database: carbs_grams
-    fat?: number; // Database: fat_grams
+    calories: number; // Not in database - calculated from ingredients
+    protein?: number; // Not in database - calculated from ingredients
+    carbs?: number; // Not in database - calculated from ingredients
+    fat?: number; // Not in database - calculated from ingredients
     mealType?: string; // Database: meal_type
     servings?: number; // Database: servings
-    cuisine: string;
-    chefPersona: string; // Formerly trainerType
-    imageUrl?: string;
+    cuisine: string; // Database: cuisine_type
+    dietaryTags?: string[]; // Database: dietary_tags (JSONB array)
+    allergens?: string[]; // Database: allergens (JSONB array)
+    chefPersona: string; // Not in database - UI only
+    imageUrl?: string; // Database: image_url
     isFavorite?: boolean; // Database: is_favorite
     isPublic?: boolean; // Database: is_public
     createdAt?: string;
