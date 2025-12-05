@@ -878,7 +878,7 @@ export const moveShoppingToInventory = async (
     
     try {
         // 1. Prepare Inventory Upserts
-        // Database schema: user_inventory uses ingredient_name (TEXT), no in_stock column
+        // Database schema: user_inventory uses ingredient_name (TEXT), has in_stock column
         // Deduplicate items by ingredient_name (keep last location for duplicates)
         const uniqueItems = new Map<string, any>();
         itemsToMove.forEach(item => {
@@ -886,7 +886,8 @@ export const moveShoppingToInventory = async (
             uniqueItems.set(item.name.toLowerCase(), {
                 user_id: userId,
                 ingredient_name: item.name,
-                location_id: locId
+                location_id: locId,
+                in_stock: true // Mark as in stock when moving from shopping to inventory
             });
         });
         
@@ -928,7 +929,7 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
     if (!supabase) return [];
 
     try {
-        // Database schema: user_inventory uses ingredient_name (TEXT), no in_stock column
+        // Database schema: user_inventory uses ingredient_name (TEXT), has in_stock column for staple management
         const { data, error } = await supabase
             .schema('chef')
             .from('user_inventory')
@@ -937,6 +938,7 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
                 ingredient_name,
                 quantity,
                 unit,
+                in_stock,
                 locations ( name, id )
             `)
             .eq('user_id', userId);
@@ -952,7 +954,7 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
             unit: row.unit,
             locationId: row.locations?.id,
             locationName: row.locations?.name || 'Unsorted',
-            inStock: true // All items in inventory are considered "in stock"
+            inStock: row.in_stock ?? true // Actual in_stock status from database
         }));
     } catch (e) {
         console.error("Error fetching inventory:", e);
@@ -961,6 +963,7 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
 };
 
 // Toggle Status (Deplete -> Auto Add to Shopping List)
+// Supports "Staple Management" - items remain in inventory when depleted
 export const updateInventoryStatus = async (
     userId: string, 
     inventoryItem: InventoryItem, 
@@ -969,19 +972,18 @@ export const updateInventoryStatus = async (
     if (!supabase) return false;
 
     try {
-        // Database doesn't have in_stock column
-        // If depleted (newInStock === false), delete from inventory and add to shopping list
-        if (!newInStock) {
-            // 1. Delete from inventory
-            const { error: delError } = await supabase
-                .schema('chef')
-                .from('user_inventory')
-                .delete()
-                .eq('id', inventoryItem.id);
-            
-            if (delError) throw delError;
+        // Update in_stock status in user_inventory
+        // Items are NOT deleted - they remain visible as "Out of Stock" for staple management
+        const { error: updateError } = await supabase
+            .schema('chef')
+            .from('user_inventory')
+            .update({ in_stock: newInStock })
+            .eq('id', inventoryItem.id);
+        
+        if (updateError) throw updateError;
 
-            // 2. Add to shopping list using upsert (leverages partial unique index)
+        // If depleted, also add to shopping list for easy repurchase
+        if (!newInStock) {
             await supabase.schema('chef').from('shopping_list').upsert({
                 user_id: userId,
                 ingredient_name: inventoryItem.name,
@@ -990,7 +992,6 @@ export const updateInventoryStatus = async (
                 unit: inventoryItem.unit
             }, { onConflict: 'user_id,ingredient_name' });
         }
-        // If marking as in stock, do nothing (item already exists in inventory)
 
         return true;
     } catch (e) {
