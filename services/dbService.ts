@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { Recipe, RecipeSection, UserProfile, AuditItem, Ingredient, ShoppingListItem, Location, InventoryItem } from '../types';
+import { DEFAULT_UNITS } from '../constants/defaults';
 
 // Robust helper to find environment variables
 const getEnvVar = (key: string): string | undefined => {
@@ -20,24 +21,34 @@ const getEnvVar = (key: string): string | undefined => {
   return undefined;
 };
 
-// Configuration
+// Configuration - Centralized Database Credentials
 const SUPABASE_URL = 
     getEnvVar('VITE_SUPABASE_URL') || 
-    getEnvVar('SUPABASE_URL') || 
-    "https://gqnopyppoueycchidehr.supabase.co";
+    getEnvVar('SUPABASE_URL');
 
 const SUPABASE_KEY = 
+    getEnvVar('VITE_SUPABASE_ANON_KEY') || 
     getEnvVar('VITE_SUPABASE_KEY') || 
-    getEnvVar('SUPABASE_KEY') || 
-    "sb_publishable_X5SIUzQz3_kuEd5Uj7oxQQ_wYgO5BYb";
+    getEnvVar('SUPABASE_KEY');
 
-// Initialize Supabase Client
+// Initialize Supabase Client with proper configuration
 let supabase: any = null;
 
 if (SUPABASE_URL && SUPABASE_KEY) {
   try {
-    supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-    console.log("✅ Supabase initialized connected to:", SUPABASE_URL);
+    supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    });
+    
+    // Log initialization only in development
+    if (import.meta.env.DEV) {
+      console.log("✅ Supabase initialized (Multi-Schema):", SUPABASE_URL);
+      console.log("✅ Using chef schema for all recipe data");
+    }
   } catch (error) {
     console.error("❌ Error initializing Supabase client:", error);
   }
@@ -91,20 +102,28 @@ export const verifyDatabaseSchema = async (): Promise<{ success: boolean; messag
     try {
         // 1. Check Recipes Table (Basic)
         const { error: recipeError } = await supabase
+            .schema('chef')
             .from('recipes')
             .select('id')
             .limit(1);
 
         if (recipeError) {
             console.error("Recipes Table Verification Error:", recipeError);
+            // Check if it's a "table doesn't exist" error
             if (recipeError.code === 'PGRST205' || recipeError.message?.includes("does not exist") || recipeError.code === '42P01') {
                  return { success: false, message: "Missing Tables. Please run the Full Schema SQL." };
+            }
+            // 406 errors or RLS-related errors are OK - tables exist, just need auth
+            if (recipeError.code === 'PGRST301' || recipeError.message?.includes('406') || recipeError.message?.includes('permission')) {
+                console.log("✅ Chef schema exists (RLS active, need authentication)");
+                return { success: true, message: "Database ready - Sign in to access data" };
             }
             return { success: false, message: `Recipes Table Error: ${extractErrorMessage(recipeError)}` };
         }
 
         // 2. Check Kitchen Tables (Canonical Ingredients)
         const { error: kitchenError } = await supabase
+            .schema('chef')
             .from('canonical_ingredients')
             .select('id')
             .limit(1);
@@ -116,9 +135,10 @@ export const verifyDatabaseSchema = async (): Promise<{ success: boolean; messag
             }
         }
 
-        // Check Profile Attributes
+        // Check User Profiles (in public schema)
         const { error: profilesError } = await supabase
-            .from('profile_attributes')
+            .schema('public')  // ✅ Use public schema for profiles
+            .from('user_profiles')
             .select('id')
             .limit(1);
 
@@ -135,14 +155,15 @@ export const verifyDatabaseSchema = async (): Promise<{ success: boolean; messag
 };
 
 /**
- * Retrieves the user profile.
+ * Retrieves the user profile from public schema.
  */
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
     if (!supabase) return null;
 
     try {
         let { data, error } = await supabase
-            .from('profile_attributes')
+            .schema('public')  // ✅ Use public schema for profiles
+            .from('user_profiles')
             .select('*')
             .eq('id', userId)
             .single();
@@ -150,7 +171,8 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
         // Fallback for user_id column
         if (!data && (error?.code === 'PGRST116' || !error)) {
              const { data: data2 } = await supabase
-                .from('profile_attributes')
+                .schema('public')  // ✅ Use public schema for profiles
+                .from('user_profiles')
                 .select('*')
                 .eq('user_id', userId)
                 .single();
@@ -168,17 +190,26 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
 
         if (!data) return null;
 
+        // Extract fitness_goals and preferred_units from JSONB fields
+        const fitnessGoals = data.fitness_goals || {};
+        const preferredUnits = (data.preferred_units || {}) as Record<string, string>;
+
         return {
-            age: data.age,
-            gender: data.gender,
-            weight: data.weight,
-            height: data.height,
-            units: data.units as 'standard' | 'metric',
-            fitnessLevel: data.fitness_level as any,
-            goals: data.goals || [],
-            injuries: data.injuries || [],
-            medicalConditions: data.medical_conditions || [],
-            preferences: data.preferences || []
+            age: data.age ?? 30,
+            gender: data.gender ?? 'Other',
+            weight: Number(data.weight) ?? 170,
+            height: Number(data.height) ?? 70,
+            units: {
+                system: (preferredUnits.system || DEFAULT_UNITS.system) as 'imperial' | 'metric',
+                weight: (preferredUnits.weight || DEFAULT_UNITS.weight) as 'lbs' | 'kg',
+                height: (preferredUnits.height || DEFAULT_UNITS.height) as 'inches' | 'cm',
+                distance: (preferredUnits.distance || DEFAULT_UNITS.distance) as 'miles' | 'km'
+            },
+            goals: fitnessGoals.goals || [],
+            medicalConditions: fitnessGoals.dietary_restrictions || [],
+            injuries: fitnessGoals.allergies || [],
+            preferences: fitnessGoals.dislikes || [],
+            fitnessLevel: (fitnessGoals.cooking_skill || 'Intermediate') as 'Beginner' | 'Intermediate' | 'Advanced' | 'Elite'
         };
     } catch (e) {
         console.error("Unexpected error fetching profile:", e);
@@ -187,30 +218,38 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
 };
 
 /**
- * Saves/Updates the user profile.
+ * Saves/Updates the user profile in public schema.
  */
 export const saveUserProfile = async (userId: string, profile: UserProfile): Promise<boolean> => {
     if (!supabase) return false;
 
     try {
+        // Map Chef app profile to user_profiles table structure
         const payload = {
             id: userId,
-            user_id: userId,
             age: profile.age,
             gender: profile.gender,
             weight: profile.weight,
             height: profile.height,
-            units: profile.units,
-            fitness_level: profile.fitnessLevel,
-            goals: profile.goals,
-            injuries: profile.injuries,
-            medical_conditions: profile.medicalConditions,
-            preferences: profile.preferences,
+            preferred_units: {
+                system: profile.units?.system || DEFAULT_UNITS.system,
+                weight: profile.units?.weight || DEFAULT_UNITS.weight,
+                height: profile.units?.height || DEFAULT_UNITS.height,
+                distance: profile.units?.distance || DEFAULT_UNITS.distance
+            },
+            fitness_goals: {
+                goals: profile.goals || [],
+                dietary_restrictions: profile.medicalConditions || [],
+                allergies: profile.injuries || [],
+                dislikes: profile.preferences || [],
+                cooking_skill: profile.fitnessLevel || 'Intermediate'
+            },
             updated_at: new Date().toISOString()
         };
 
         const { error } = await supabase
-            .from('profile_attributes')
+            .schema('public')  // ✅ Use public schema for profiles
+            .from('user_profiles')
             .upsert(payload, { onConflict: 'id' }); 
 
         if (error) {
@@ -241,6 +280,7 @@ const processRecipeIngredients = async (recipeId: string, sections: RecipeSectio
     
     // 2. Fetch existing canonical ingredients
     const { data: existingCanonical, error: fetchError } = await supabase
+        .schema('chef')
         .from('canonical_ingredients')
         .select('id, name')
         .in('name', names); 
@@ -262,6 +302,7 @@ const processRecipeIngredients = async (recipeId: string, sections: RecipeSectio
     
     if (uniqueNew.length > 0) {
         const { data: createdIngredients, error: createError } = await supabase
+            .schema('chef')
             .from('canonical_ingredients')
             .insert(uniqueNew.map(n => ({ name: n, category: 'General' })))
             .select('id, name');
@@ -285,7 +326,7 @@ const processRecipeIngredients = async (recipeId: string, sections: RecipeSectio
     }).filter(x => x !== null);
 
     if (linksToCreate.length > 0) {
-        await supabase.from('recipe_ingredients').insert(linksToCreate);
+        await supabase.schema('chef').from('recipe_ingredients').insert(linksToCreate);
     }
 };
 
@@ -318,11 +359,11 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
     let data, error;
     
     if (recipeId) {
-        const result = await supabase.from('recipes').update(recipePayload).eq('id', recipeId).select('id').single();
+        const result = await supabase.schema('chef').from('recipes').update(recipePayload).eq('id', recipeId).select('id').single();
         data = result.data;
         error = result.error;
     } else {
-        const result = await supabase.from('recipes').insert([recipePayload]).select('id').single();
+        const result = await supabase.schema('chef').from('recipes').insert([recipePayload]).select('id').single();
         data = result.data;
         error = result.error;
     }
@@ -334,7 +375,7 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
 
     // 2. Handle Content (Ingredients/Steps)
     // Delete existing content for this recipe to replace with new state
-    await supabase.from('recipe_content').delete().eq('recipe_id', recipeId);
+    await supabase.schema('chef').from('recipe_content').delete().eq('recipe_id', recipeId);
     
     // Sanitize and map content
     const contentToInsert = recipe.sections.map((section, index) => ({
@@ -347,13 +388,13 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
       order_index: index
     }));
 
-    const { error: contentError } = await supabase.from('recipe_content').insert(contentToInsert);
+    const { error: contentError } = await supabase.schema('chef').from('recipe_content').insert(contentToInsert);
     if (contentError) throw contentError;
 
     // 3. Process Relational Ingredients (Phase 1)
     // Wrap in try/catch so missing advanced tables don't block saving the recipe card
     try {
-        await supabase.from('recipe_ingredients').delete().eq('recipe_id', recipeId);
+        await supabase.schema('chef').from('recipe_ingredients').delete().eq('recipe_id', recipeId);
         await processRecipeIngredients(recipeId, recipe.sections);
     } catch (ingError) {
         console.warn("Secondary ingredient processing failed (non-critical):", ingError);
@@ -385,6 +426,7 @@ export const getSavedRecipes = async (userId: string): Promise<Recipe[]> => {
 
     try {
         const { data: recipesData, error: recipesError } = await supabase
+            .schema('chef')
             .from('recipes')
             .select('*')
             .eq('user_id', userId)
@@ -396,6 +438,7 @@ export const getSavedRecipes = async (userId: string): Promise<Recipe[]> => {
         const recipeIds = recipesData.map((r: any) => r.id);
         
         const { data: contentData, error: contentError } = await supabase
+            .schema('chef')
             .from('recipe_content')
             .select('*')
             .in('recipe_id', recipeIds)
@@ -441,7 +484,7 @@ export const getSavedRecipes = async (userId: string): Promise<Recipe[]> => {
 
 export const deleteRecipe = async (recipeId: string): Promise<boolean> => {
     if (!supabase) return false;
-    const { error } = await supabase.from('recipes').delete().eq('id', recipeId);
+    const { error } = await supabase.schema('chef').from('recipes').delete().eq('id', recipeId);
     if (error) {
         console.error("Error deleting recipe:", error);
         return false;
@@ -450,28 +493,55 @@ export const deleteRecipe = async (recipeId: string): Promise<boolean> => {
 };
 
 /**
- * Fetches recent workouts from the legacy 'workouts' table to use as context
+ * Fetches recent workouts using the cross-schema function
+ * This queries from the trainer schema safely via RPC
  */
 export const getRecentWorkouts = async (userId: string): Promise<any[]> => {
     if (!supabase) return [];
 
     try {
-        const { data, error } = await supabase
-            .from('workouts')
-            .select('id, title, total_duration, difficulty, trainer_type, created_at, trainer_notes')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(5);
+        // Use the cross-schema RPC function instead of direct query
+        const { data, error} = await supabase
+            .rpc('get_workout_context_for_recipe', {
+                p_user_id: userId,
+                p_hours_back: 168 // Last 7 days
+            });
 
         if (error) {
-            // Ignore error if table doesn't exist yet
-            if (error.code === '42P01') return []; 
-            throw error;
+            console.warn("Could not fetch recent workouts:", error);
+            return [];
         }
 
         return data || [];
     } catch (error) {
         console.warn("Could not fetch recent workouts:", error);
+        return [];
+    }
+};
+
+/**
+ * Get workout context for meal planning
+ * Returns recent workout data to inform recipe recommendations
+ */
+export const getWorkoutContextForMealPlanning = async (userId: string, hoursBack: number = 24): Promise<any[]> => {
+    if (!supabase) return [];
+
+    try {
+        const { data, error } = await supabase
+            .rpc('get_workout_context_for_recipe', {
+                p_user_id: userId,
+                p_hours_back: hoursBack
+            });
+
+        if (error) {
+            console.warn("Could not fetch workout context:", error);
+            return [];
+        }
+
+        console.log(`✅ Fetched ${data?.length || 0} recent workouts for meal planning`);
+        return data || [];
+    } catch (error) {
+        console.warn("Error fetching workout context:", error);
         return [];
     }
 };
@@ -488,6 +558,7 @@ export const auditRecipeIngredients = async (userId: string, ingredients: Ingred
         // We attempt to match names from the recipe to the canonical table
         const names = ingredients.map(i => i.item.trim());
         const { data: canonicalMatches, error: matchError } = await supabase
+            .schema('chef')
             .from('canonical_ingredients')
             .select('id, name')
             .in('name', names);
@@ -500,6 +571,7 @@ export const auditRecipeIngredients = async (userId: string, ingredients: Ingred
         // 2. Fetch User's Inventory (What they already have)
         // We fetch everything in stock for simplicity in V1, or we could filter by IDs found above
         const { data: inventoryData, error: invError } = await supabase
+            .schema('chef')
             .from('user_inventory')
             .select('ingredient_id, in_stock, id')
             .eq('user_id', userId)
@@ -575,6 +647,7 @@ export const commitShoppingAudit = async (userId: string, auditItems: AuditItem[
             // Note: If you didn't add a unique constraint on user_id+ingredient_id, upsert might duplicate.
             // Phase 2 setup script should have: create unique index ... on user_inventory(user_id, ingredient_id);
             const { error: invError } = await supabase
+                .schema('chef')
                 .from('user_inventory')
                 .upsert(inventoryUpserts, { onConflict: 'user_id, ingredient_id' });
             
@@ -592,6 +665,7 @@ export const commitShoppingAudit = async (userId: string, auditItems: AuditItem[
             if (missingCanonical.length > 0) {
                 // Bulk insert new canonicals
                 const { data: newCanonicals } = await supabase
+                    .schema('chef')
                     .from('canonical_ingredients')
                     .insert(missingCanonical.map(i => ({ name: i.name, category: 'General' })))
                     .select('id, name');
@@ -615,6 +689,7 @@ export const commitShoppingAudit = async (userId: string, auditItems: AuditItem[
 
             if (shoppingListPayload.length > 0) {
                 const { error: shopError } = await supabase
+                    .schema('chef')
                     .from('shopping_list')
                     .insert(shoppingListPayload);
                 if (shopError) throw shopError;
@@ -633,19 +708,34 @@ export const getShoppingList = async (userId: string): Promise<ShoppingListItem[
     if (!supabase) return [];
     try {
         const { data, error } = await supabase
+            .schema('chef')
             .from('shopping_list')
-            .select('id, is_checked, ingredient_id, canonical_ingredients(name)')
+            .select(`
+                id, 
+                ingredient_id,
+                is_checked,
+                canonical_ingredients ( name )
+            `)
             .eq('user_id', userId)
             .order('is_checked', { ascending: true }); // Unchecked first
 
         if (error) throw error;
-        
-        return data.map((d: any) => ({
-            id: d.id,
-            ingredientId: d.ingredient_id,
-            name: d.canonical_ingredients?.name || 'Unknown Item',
-            isChecked: d.is_checked
-        }));
+
+        // Filter out invalid items and log warnings
+        return data
+            .filter((d: any) => {
+                if (!d.ingredient_id) {
+                    console.warn(`⚠️ Shopping list item ${d.id} missing ingredient_id - skipping`);
+                    return false;
+                }
+                return true;
+            })
+            .map((d: any) => ({
+                id: d.id,
+                ingredientId: d.ingredient_id, // Guaranteed to exist after filter
+                name: d.canonical_ingredients?.name || 'Unknown Item',
+                isChecked: d.is_checked || false
+            }));
     } catch (e) {
         console.error("Error fetching shopping list", e);
         return [];
@@ -655,14 +745,14 @@ export const getShoppingList = async (userId: string): Promise<ShoppingListItem[
 // Phase 3: Toggle Item
 export const toggleShoppingItem = async (itemId: string, isChecked: boolean) => {
     if (!supabase) return;
-    await supabase.from('shopping_list').update({ is_checked: isChecked }).eq('id', itemId);
+    await supabase.schema('chef').from('shopping_list').update({ is_checked: isChecked }).eq('id', itemId);
 };
 
 // Phase 3: Get Locations
 export const getUserLocations = async (userId: string): Promise<Location[]> => {
     if (!supabase) return [];
     try {
-        let { data } = await supabase.from('locations').select('*').eq('user_id', userId);
+        let { data } = await supabase.schema('chef').from('locations').select('*').eq('user_id', userId);
         
         if (!data || data.length === 0) {
             // Seed defaults if empty
@@ -672,7 +762,7 @@ export const getUserLocations = async (userId: string): Promise<Location[]> => {
                 { user_id: userId, name: 'Freezer', icon: 'IceCream' },
                 { user_id: userId, name: 'Spice Rack', icon: 'Flame' }
             ];
-            const { data: newLocs } = await supabase.from('locations').insert(defaults).select();
+            const { data: newLocs } = await supabase.schema('chef').from('locations').insert(defaults).select();
             return newLocs || [];
         }
         return data;
@@ -704,6 +794,7 @@ export const moveShoppingToInventory = async (
         // 2. Upsert to Inventory
         // This requires a unique constraint on (user_id, ingredient_id) to work as an upsert.
         const { error: invError } = await supabase
+            .schema('chef')
             .from('user_inventory')
             .upsert(upserts, { onConflict: 'user_id, ingredient_id' });
         
@@ -712,6 +803,7 @@ export const moveShoppingToInventory = async (
         // 3. Delete from Shopping List
         const idsToDelete = itemsToMove.map(i => i.id);
         const { error: delError } = await supabase
+            .schema('chef')
             .from('shopping_list')
             .delete()
             .in('id', idsToDelete);
@@ -742,12 +834,15 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
 
     try {
         const { data, error } = await supabase
+            .schema('chef')
             .from('user_inventory')
             .select(`
                 id, 
                 in_stock, 
                 ingredient_id,
-                canonical_ingredients ( name, category ),
+                quantity,
+                unit,
+                canonical_ingredients ( name ),
                 locations ( name, id )
             `)
             .eq('user_id', userId);
@@ -756,9 +851,11 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
 
         return data.map((row: any) => ({
             id: row.id,
-            ingredientId: row.ingredient_id,
+            ingredientId: row.ingredient_id, // Required for updateInventoryStatus
+            ingredientName: row.canonical_ingredients?.name || 'Unknown',
             name: row.canonical_ingredients?.name || 'Unknown',
-            category: row.canonical_ingredients?.category,
+            quantity: row.quantity,
+            unit: row.unit,
             locationId: row.locations?.id,
             locationName: row.locations?.name || 'Unsorted',
             inStock: row.in_stock
@@ -780,6 +877,7 @@ export const updateInventoryStatus = async (
     try {
         // 1. Update Inventory Table
         const { error: invError } = await supabase
+            .schema('chef')
             .from('user_inventory')
             .update({ in_stock: newInStock })
             .eq('id', inventoryItem.id);
@@ -790,6 +888,7 @@ export const updateInventoryStatus = async (
         if (!newInStock) {
             // Check if already on shopping list (unchecked)
             const { data: existing } = await supabase
+                .schema('chef')
                 .from('shopping_list')
                 .select('id')
                 .eq('user_id', userId)
@@ -798,7 +897,7 @@ export const updateInventoryStatus = async (
                 .single();
             
             if (!existing) {
-                await supabase.from('shopping_list').insert({
+                await supabase.schema('chef').from('shopping_list').insert({
                     user_id: userId,
                     ingredient_id: inventoryItem.ingredientId,
                     is_checked: false

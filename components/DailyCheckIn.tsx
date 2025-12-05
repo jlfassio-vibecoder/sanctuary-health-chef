@@ -95,11 +95,16 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
   }, [isLoading, trainer, selectedFocus]);
 
   const handleFetchWorkouts = async () => {
+    // Get current user from Supabase auth
     const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-        const workouts = await getRecentWorkouts(session.user.id);
-        setRecentWorkouts(workouts);
-        setShowImportModal(true);
+    const userId = session?.user?.id;
+    
+    if (userId) {
+      const workouts = await getRecentWorkouts(userId);
+      setRecentWorkouts(workouts);
+      setShowImportModal(true);
+    } else {
+      console.warn('No user authenticated - cannot fetch workouts');
     }
   };
 

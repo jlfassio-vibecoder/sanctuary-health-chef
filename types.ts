@@ -1,6 +1,11 @@
 
 // User Profile Data
-export type UnitSystem = 'standard' | 'metric';
+export interface UnitSystem {
+  system: 'imperial' | 'metric';
+  weight: 'lbs' | 'kg';
+  height: 'inches' | 'cm';
+  distance: 'miles' | 'km';
+}
 
 export interface UserProfile {
   age: number;

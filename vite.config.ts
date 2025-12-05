@@ -6,8 +6,13 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
       server: {
-        port: 3000,
+        // FitCopilot Chef app port (Hub: 5175, Trainer: 5174, Chef: 3002)
+        port: 3002,
         host: '0.0.0.0',
+        cors: {
+          origin: ['http://localhost:5175', 'http://localhost:5174', 'http://localhost:5173'],
+          credentials: true
+        }
       },
       plugins: [react()],
       define: {
