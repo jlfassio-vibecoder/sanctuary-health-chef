@@ -123,8 +123,9 @@ export interface Location {
 
 export interface InventoryItem {
   id: string; // user_inventory_id
-  ingredientId: string; // canonical_id
-  name: string;
+  ingredientId: string; // NOTE: Despite the name, this contains ingredient_name (TEXT), not a UUID
+                        // Kept for backward compatibility with existing code
+  name: string; // Ingredient name - use this field for display and logic
   quantity?: number; // Database: quantity field
   unit?: string; // Database: unit field
   locationId?: string;
@@ -135,8 +136,10 @@ export interface InventoryItem {
 
 export interface ShoppingListItem {
     id: string;
-    ingredientId: string;
-    name: string;
+    ingredientId: string; // NOTE: Despite the name, this contains ingredient_name (TEXT), not a UUID
+                          // Kept for backward compatibility with existing code
+                          // In practice, 'name' field should be used instead
+    name: string; // Ingredient name - use this field for display and logic
     isChecked: boolean;
 }
 

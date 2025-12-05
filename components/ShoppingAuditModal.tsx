@@ -74,7 +74,7 @@ export const ShoppingAuditModal: React.FC<Props> = ({ ingredients, userId, recip
             </div>
           ) : (
             <div className="space-y-2">
-               {items && items.length > 0 ? items.map((item, idx) => (
+               {items.length > 0 ? items.map((item, idx) => (
                  <div 
                     key={idx}
                     onClick={() => toggleItem(idx)}

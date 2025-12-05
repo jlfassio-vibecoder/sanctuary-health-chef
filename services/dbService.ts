@@ -279,6 +279,8 @@ const processRecipeIngredients = async (recipeId: string, sections: RecipeSectio
     const names = allIngredients.map(i => i.item.trim());
     
     // 2. Fetch existing canonical ingredients
+    // Note: We still maintain canonical_ingredients for consistency and use by other features
+    // (e.g., auditRecipeIngredients), even though recipe_ingredients now uses ingredient_name directly
     const { data: existingCanonical, error: fetchError } = await supabase
         .schema('chef')
         .from('canonical_ingredients')
@@ -295,6 +297,7 @@ const processRecipeIngredients = async (recipeId: string, sections: RecipeSectio
     existingCanonical?.forEach((row: any) => existingMap.set(row.name.toLowerCase(), row.id));
 
     // 3. Identify new ingredients to create
+    // Populate canonical_ingredients for consistency across the app (used by shopping audit, etc.)
     const newIngredients = names.filter(n => !existingMap.has(n.toLowerCase()));
     
     // Dedupe
@@ -314,6 +317,9 @@ const processRecipeIngredients = async (recipeId: string, sections: RecipeSectio
 
     // 4. Create links in recipe_ingredients
     // Database schema: recipe_id, ingredient_name (TEXT, not ID!), quantity, unit, notes
+    // Note: We use ingredient_name directly (not foreign key to canonical_ingredients)
+    // This is intentional - allows flexibility and avoids foreign key constraints
+    // All ingredients are valid; no filtering needed
     const linksToCreate = allIngredients.map(ing => {
         return {
             recipe_id: recipeId,
@@ -746,27 +752,34 @@ export const commitShoppingAudit = async (userId: string, auditItems: AuditItem[
                 (existing || []).map((item: any) => [item.ingredient_name.toLowerCase(), item])
             );
             
-            // Merge new items with existing, summing quantities when units match
+            // Merge new items with existing, handling unit mismatches
             const upsertPayload = toBuyItems.map(item => {
                 const existingItem = existingMap.get(item.name.toLowerCase());
                 
                 if (existingItem && existingItem.unit === item.unit) {
-                    // Sum quantities if units match
+                    // Units match - sum quantities
                     return {
                         ...existingItem,
                         quantity: (existingItem.quantity || 0) + (parseFloat(item.qty) || 0),
                         recipe_id: null // Multiple recipes
                     };
                 } else if (existingItem && existingItem.unit !== item.unit) {
-                    // Different unit - replace with new item (keeps latest unit)
+                    // Units don't match - keep both quantities visible
+                    // Strategy: Add quantities as text to preserve both measurements
+                    // Example: "2 cups + 500 grams" 
+                    // This prevents data loss when units can't be directly compared
+                    const existingQty = existingItem.quantity ? `${existingItem.quantity} ${existingItem.unit || ''}`.trim() : '';
+                    const newQty = item.qty ? `${item.qty} ${item.unit || ''}`.trim() : '';
+                    const combinedQty = existingQty && newQty ? `${existingQty} + ${newQty}` : (newQty || existingQty);
+                    
                     return {
                         ...existingItem,
-                        quantity: parseFloat(item.qty) || null,
-                        unit: item.unit || null,
-                        recipe_id: recipeId || null
+                        quantity: null, // Clear numeric quantity since we have mixed units
+                        unit: combinedQty, // Store combined quantities in unit field for display
+                        recipe_id: null // Multiple recipes
                     };
                 } else {
-                    // New item
+                    // New item - first time adding this ingredient
                     return {
                         user_id: userId,
                         ingredient_name: item.name,
@@ -814,8 +827,9 @@ export const getShoppingList = async (userId: string): Promise<ShoppingListItem[
         // Map ingredient_name to the expected format
         return data.map((d: any) => ({
             id: d.id,
-            ingredientId: d.ingredient_name || '', // Store name in ingredientId for compatibility
-            name: d.ingredient_name || 'Unknown Item',
+            ingredientId: d.ingredient_name || '', // Legacy field: contains ingredient name (not UUID)
+                                                     // Kept for backward compatibility
+            name: d.ingredient_name || 'Unknown Item', // Use this field for ingredient name
             isChecked: d.is_purchased || false
         }));
     } catch (e) {
