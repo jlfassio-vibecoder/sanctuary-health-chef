@@ -644,13 +644,12 @@ export const auditRecipeIngredients = async (userId: string, ingredients: Ingred
         canonicalMatches?.forEach((r: any) => nameToIdMap.set(r.name.toLowerCase(), r.id));
 
         // 2. Fetch User's Inventory (What they already have)
-        // Database schema: user_inventory has ingredient_name (TEXT), not ingredient_id
+        // Database schema: user_inventory has ingredient_name (TEXT), no in_stock column
         const { data: inventoryData, error: invError } = await supabase
             .schema('chef')
             .from('user_inventory')
-            .select('ingredient_name, in_stock, id') // Database uses ingredient_name, not ingredient_id
-            .eq('user_id', userId)
-            .eq('in_stock', true);
+            .select('ingredient_name, id')
+            .eq('user_id', userId);
         
         if (invError) throw invError;
         
@@ -699,7 +698,7 @@ export const auditRecipeIngredients = async (userId: string, ingredients: Ingred
 
 /**
  * Phase 2: Commit Audit
- * 1. Checked items -> Update user_inventory (Set in_stock = true)
+ * 1. Checked items -> Update user_inventory
  * 2. Unchecked items -> Add to shopping_list
  */
 export const commitShoppingAudit = async (userId: string, auditItems: AuditItem[], recipeId?: string): Promise<boolean> => {
@@ -707,63 +706,38 @@ export const commitShoppingAudit = async (userId: string, auditItems: AuditItem[
 
     try {
         // A. Separate Checked (In Inventory) vs Unchecked (Need to Buy)
-        const inStockItems = auditItems.filter(i => i.inStock && i.canonicalId);
+        const inStockItems = auditItems.filter(i => i.inStock);
         const toBuyItems = auditItems.filter(i => !i.inStock);
 
         // B. Update Inventory (Upsert)
+        // Database schema: uses ingredient_name (TEXT), no in_stock column
         if (inStockItems.length > 0) {
-            // We need to ensure these exist in inventory. 
-            // If they have an existing inventoryId, update. If not, insert.
             const inventoryUpserts = inStockItems.map(item => ({
                 user_id: userId,
-                ingredient_id: item.canonicalId,
-                in_stock: true,
-                // If we know the ID, we could use it, but upserting on (user_id, ingredient_id) is safer if constraint exists
-                // Assuming we added a unique constraint on user_id + ingredient_id in the setup script
+                ingredient_name: item.name // Use name instead of canonicalId
+                // Note: No in_stock column in database
             }));
             
-            // Note: If you didn't add a unique constraint on user_id+ingredient_id, upsert might duplicate.
-            // Phase 2 setup script should have: create unique index ... on user_inventory(user_id, ingredient_id);
+            // Database has unique constraint on (user_id, ingredient_name)
             const { error: invError } = await supabase
                 .schema('chef')
                 .from('user_inventory')
-                .upsert(inventoryUpserts, { onConflict: 'user_id, ingredient_id' });
+                .upsert(inventoryUpserts, { onConflict: 'user_id,ingredient_name' });
             
             if (invError) console.error("Inventory update error:", invError);
         }
 
         // C. Add to Shopping List
+        // Database schema: uses ingredient_name (TEXT) and is_purchased (not is_checked)
         if (toBuyItems.length > 0) {
-            // We need canonical IDs for shopping list. 
-            // If an item doesn't have a canonical ID (because it's new/unmatched), we technically should create it first.
-            // For V1 speed, we will skip items without canonical ID or create them on the fly?
-            // Let's create them on the fly for robustness.
-            
-            const missingCanonical = toBuyItems.filter(i => !i.canonicalId);
-            if (missingCanonical.length > 0) {
-                // Bulk insert new canonicals
-                const { data: newCanonicals } = await supabase
-                    .schema('chef')
-                    .from('canonical_ingredients')
-                    .insert(missingCanonical.map(i => ({ name: i.name, category: 'General' })))
-                    .select('id, name');
-                
-                // Map back
-                newCanonicals?.forEach((nc: any) => {
-                    const match = toBuyItems.find(i => i.name === nc.name);
-                    if (match) match.canonicalId = nc.id;
-                });
-            }
-
-            // Now insert to shopping list
-            const shoppingListPayload = toBuyItems
-                .filter(i => i.canonicalId) // Only those with valid IDs
-                .map(item => ({
-                    user_id: userId,
-                    ingredient_id: item.canonicalId,
-                    recipe_id: recipeId || null,
-                    is_checked: false
-                }));
+            const shoppingListPayload = toBuyItems.map(item => ({
+                user_id: userId,
+                ingredient_name: item.name, // Use name instead of canonicalId
+                recipe_id: recipeId || null,
+                is_purchased: false, // Database uses is_purchased
+                quantity: parseFloat(item.qty) || null,
+                unit: item.unit || null
+            }));
 
             if (shoppingListPayload.length > 0) {
                 const { error: shopError } = await supabase
@@ -852,14 +826,14 @@ export const moveShoppingToInventory = async (
     
     try {
         // 1. Prepare Inventory Upserts
-        // Database schema: user_inventory uses ingredient_name (TEXT), not ingredient_id
+        // Database schema: user_inventory uses ingredient_name (TEXT), no in_stock column
         const upserts = itemsToMove.map(item => {
             const locId = locationMap[item.name];
             return {
                 user_id: userId,
                 ingredient_name: item.name, // Database uses ingredient_name
-                in_stock: true,
                 location_id: locId
+                // Note: No in_stock column in database - items in inventory are assumed to be in stock
             };
         });
 
@@ -905,13 +879,12 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
     if (!supabase) return [];
 
     try {
-        // Database schema: user_inventory uses ingredient_name (TEXT), not ingredient_id
+        // Database schema: user_inventory uses ingredient_name (TEXT), no in_stock column
         const { data, error } = await supabase
             .schema('chef')
             .from('user_inventory')
             .select(`
                 id, 
-                in_stock, 
                 ingredient_name,
                 quantity,
                 unit,
@@ -930,7 +903,7 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
             unit: row.unit,
             locationId: row.locations?.id,
             locationName: row.locations?.name || 'Unsorted',
-            inStock: row.in_stock
+            inStock: true // All items in inventory are considered "in stock"
         }));
     } catch (e) {
         console.error("Error fetching inventory:", e);
@@ -947,35 +920,39 @@ export const updateInventoryStatus = async (
     if (!supabase) return false;
 
     try {
-        // 1. Update Inventory Table
-        const { error: invError } = await supabase
-            .schema('chef')
-            .from('user_inventory')
-            .update({ in_stock: newInStock })
-            .eq('id', inventoryItem.id);
-        
-        if (invError) throw invError;
-
-        // 2. If Depleted (newInStock === false) -> Add to Shopping List
+        // Database doesn't have in_stock column
+        // If depleted (newInStock === false), delete from inventory and add to shopping list
         if (!newInStock) {
-            // Check if already on shopping list (unchecked)
+            // 1. Delete from inventory
+            const { error: delError } = await supabase
+                .schema('chef')
+                .from('user_inventory')
+                .delete()
+                .eq('id', inventoryItem.id);
+            
+            if (delError) throw delError;
+
+            // 2. Add to shopping list (uses ingredient_name and is_purchased)
             const { data: existing } = await supabase
                 .schema('chef')
                 .from('shopping_list')
                 .select('id')
                 .eq('user_id', userId)
-                .eq('ingredient_id', inventoryItem.ingredientId)
-                .eq('is_checked', false)
+                .eq('ingredient_name', inventoryItem.name) // Use name
+                .eq('is_purchased', false) // Database uses is_purchased
                 .single();
             
             if (!existing) {
                 await supabase.schema('chef').from('shopping_list').insert({
                     user_id: userId,
-                    ingredient_id: inventoryItem.ingredientId,
-                    is_checked: false
+                    ingredient_name: inventoryItem.name, // Use name
+                    is_purchased: false, // Database uses is_purchased
+                    quantity: inventoryItem.quantity,
+                    unit: inventoryItem.unit
                 });
             }
         }
+        // If marking as in stock, do nothing (item already exists in inventory)
 
         return true;
     } catch (e) {
