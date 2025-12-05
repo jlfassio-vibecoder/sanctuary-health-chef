@@ -720,12 +720,21 @@ export const getShoppingList = async (userId: string): Promise<ShoppingListItem[
 
         if (error) throw error;
 
-        return data.map((d: any) => ({
-            id: d.id,
-            ingredientId: d.ingredient_id || '', // Required for moveShoppingToInventory
-            name: d.canonical_ingredients?.name || 'Unknown Item',
-            isChecked: d.is_checked || false
-        }));
+        // Filter out invalid items and log warnings
+        return data
+            .filter((d: any) => {
+                if (!d.ingredient_id) {
+                    console.warn(`⚠️ Shopping list item ${d.id} missing ingredient_id - skipping`);
+                    return false;
+                }
+                return true;
+            })
+            .map((d: any) => ({
+                id: d.id,
+                ingredientId: d.ingredient_id, // Guaranteed to exist after filter
+                name: d.canonical_ingredients?.name || 'Unknown Item',
+                isChecked: d.is_checked || false
+            }));
     } catch (e) {
         console.error("Error fetching shopping list", e);
         return [];
