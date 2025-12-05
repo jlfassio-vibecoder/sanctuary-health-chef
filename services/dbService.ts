@@ -313,17 +313,16 @@ const processRecipeIngredients = async (recipeId: string, sections: RecipeSectio
     }
 
     // 4. Create links in recipe_ingredients
+    // Database schema: recipe_id, ingredient_name (TEXT, not ID!), quantity, unit, notes
     const linksToCreate = allIngredients.map(ing => {
-        const cId = existingMap.get(ing.item.trim().toLowerCase());
-        if (!cId) return null;
         return {
             recipe_id: recipeId,
-            ingredient_id: cId,
-            quantity_value: parseFloat(ing.quantity) || 0,
-            quantity_unit: ing.unit,
-            preparation_note: ing.prep
+            ingredient_name: ing.item.trim(), // Database uses ingredient_name (TEXT), not ingredient_id
+            quantity: parseFloat(ing.quantity) || null, // Database: 'quantity' not 'quantity_value'
+            unit: ing.unit || null, // Database: 'unit' not 'quantity_unit'
+            notes: ing.prep || null // Database: 'notes' not 'preparation_note'
         };
-    }).filter(x => x !== null);
+    });
 
     if (linksToCreate.length > 0) {
         await supabase.schema('chef').from('recipe_ingredients').insert(linksToCreate);
@@ -645,22 +644,25 @@ export const auditRecipeIngredients = async (userId: string, ingredients: Ingred
         canonicalMatches?.forEach((r: any) => nameToIdMap.set(r.name.toLowerCase(), r.id));
 
         // 2. Fetch User's Inventory (What they already have)
-        // We fetch everything in stock for simplicity in V1, or we could filter by IDs found above
+        // Database schema: user_inventory has ingredient_name (TEXT), not ingredient_id
         const { data: inventoryData, error: invError } = await supabase
             .schema('chef')
             .from('user_inventory')
-            .select('ingredient_id, in_stock, id')
+            .select('ingredient_name, in_stock, id') // Database uses ingredient_name, not ingredient_id
             .eq('user_id', userId)
             .eq('in_stock', true);
         
         if (invError) throw invError;
         
-        const inventorySet = new Set<string>(); // Set of canonical IDs in stock
-        const inventoryIdMap = new Map<string, string>(); // Map canonical ID -> Inventory Row ID
+        const inventorySet = new Set<string>(); // Set of ingredient names in stock
+        const inventoryIdMap = new Map<string, string>(); // Map ingredient name -> Inventory Row ID
 
         inventoryData?.forEach((inv: any) => {
-            inventorySet.add(inv.ingredient_id);
-            inventoryIdMap.set(inv.ingredient_id, inv.id);
+            const normalizedName = inv.ingredient_name?.toLowerCase();
+            if (normalizedName) {
+                inventorySet.add(normalizedName); // Store names, not IDs
+                inventoryIdMap.set(normalizedName, inv.id); // Map name -> inventory row ID
+            }
         });
 
         // 3. Build the Audit List
@@ -668,15 +670,15 @@ export const auditRecipeIngredients = async (userId: string, ingredients: Ingred
             const normalizedName = ing.item.trim().toLowerCase();
             const canonicalId = nameToIdMap.get(normalizedName);
             
-            // It is in stock if we found a canonical ID AND that ID is in the inventory set
-            const hasInStock = canonicalId ? inventorySet.has(canonicalId) : false;
+            // Check if ingredient name is in inventory
+            const hasInStock = inventorySet.has(normalizedName);
 
             return {
                 name: ing.item,
                 qty: ing.quantity,
                 unit: ing.unit,
                 canonicalId: canonicalId,
-                inventoryId: canonicalId ? inventoryIdMap.get(canonicalId) : undefined,
+                inventoryId: inventoryIdMap.get(normalizedName), // Get inventory ID by name
                 inStock: hasInStock
             };
         });
@@ -783,35 +785,27 @@ export const commitShoppingAudit = async (userId: string, auditItems: AuditItem[
 export const getShoppingList = async (userId: string): Promise<ShoppingListItem[]> => {
     if (!supabase) return [];
     try {
+        // Database schema: shopping_list has ingredient_name (TEXT), not ingredient_id
         const { data, error } = await supabase
             .schema('chef')
             .from('shopping_list')
             .select(`
                 id, 
-                ingredient_id,
-                is_checked,
-                canonical_ingredients ( name )
+                ingredient_name,
+                is_purchased
             `)
             .eq('user_id', userId)
-            .order('is_checked', { ascending: true }); // Unchecked first
+            .order('is_purchased', { ascending: true }); // Unpurchased first
 
         if (error) throw error;
 
-        // Filter out invalid items and log warnings
-        return data
-            .filter((d: any) => {
-                if (!d.ingredient_id) {
-                    console.warn(`⚠️ Shopping list item ${d.id} missing ingredient_id - skipping`);
-                    return false;
-                }
-                return true;
-            })
-            .map((d: any) => ({
-                id: d.id,
-                ingredientId: d.ingredient_id, // Guaranteed to exist after filter
-                name: d.canonical_ingredients?.name || 'Unknown Item',
-                isChecked: d.is_checked || false
-            }));
+        // Map ingredient_name to the expected format
+        return data.map((d: any) => ({
+            id: d.id,
+            ingredientId: d.ingredient_name || '', // Store name in ingredientId for compatibility
+            name: d.ingredient_name || 'Unknown Item',
+            isChecked: d.is_purchased || false
+        }));
     } catch (e) {
         console.error("Error fetching shopping list", e);
         return [];
@@ -821,7 +815,8 @@ export const getShoppingList = async (userId: string): Promise<ShoppingListItem[
 // Phase 3: Toggle Item
 export const toggleShoppingItem = async (itemId: string, isChecked: boolean) => {
     if (!supabase) return;
-    await supabase.schema('chef').from('shopping_list').update({ is_checked: isChecked }).eq('id', itemId);
+    // Database uses is_purchased, not is_checked
+    await supabase.schema('chef').from('shopping_list').update({ is_purchased: isChecked }).eq('id', itemId);
 };
 
 // Phase 3: Get Locations
@@ -857,22 +852,23 @@ export const moveShoppingToInventory = async (
     
     try {
         // 1. Prepare Inventory Upserts
+        // Database schema: user_inventory uses ingredient_name (TEXT), not ingredient_id
         const upserts = itemsToMove.map(item => {
             const locId = locationMap[item.name];
             return {
                 user_id: userId,
-                ingredient_id: item.ingredientId,
+                ingredient_name: item.name, // Database uses ingredient_name
                 in_stock: true,
                 location_id: locId
             };
         });
 
         // 2. Upsert to Inventory
-        // This requires a unique constraint on (user_id, ingredient_id) to work as an upsert.
+        // Database has unique constraint on (user_id, ingredient_name)
         const { error: invError } = await supabase
             .schema('chef')
             .from('user_inventory')
-            .upsert(upserts, { onConflict: 'user_id, ingredient_id' });
+            .upsert(upserts, { onConflict: 'user_id,ingredient_name' });
         
         if (invError) throw invError;
 
@@ -909,16 +905,16 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
     if (!supabase) return [];
 
     try {
+        // Database schema: user_inventory uses ingredient_name (TEXT), not ingredient_id
         const { data, error } = await supabase
             .schema('chef')
             .from('user_inventory')
             .select(`
                 id, 
                 in_stock, 
-                ingredient_id,
+                ingredient_name,
                 quantity,
                 unit,
-                canonical_ingredients ( name ),
                 locations ( name, id )
             `)
             .eq('user_id', userId);
@@ -927,9 +923,9 @@ export const getUserInventory = async (userId: string): Promise<InventoryItem[]>
 
         return data.map((row: any) => ({
             id: row.id,
-            ingredientId: row.ingredient_id, // Required for updateInventoryStatus
-            ingredientName: row.canonical_ingredients?.name || 'Unknown',
-            name: row.canonical_ingredients?.name || 'Unknown',
+            ingredientId: row.ingredient_name || '', // Use name for compatibility
+            ingredientName: row.ingredient_name || 'Unknown',
+            name: row.ingredient_name || 'Unknown',
             quantity: row.quantity,
             unit: row.unit,
             locationId: row.locations?.id,
