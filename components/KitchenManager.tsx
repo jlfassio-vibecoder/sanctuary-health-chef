@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
-import { InventoryItem } from '../types';
-import { getUserInventory, updateInventoryStatus } from '../services/dbService';
+import { InventoryItem, Location } from '../types';
+import { getUserInventory, updateInventoryStatus, getUserLocations, updateInventoryLocation } from '../services/dbService';
 import { Archive, Refrigerator, Box, Flame, Search, ToggleLeft, ToggleRight, Loader2, Plus, AlertCircle, IceCream } from 'lucide-react';
 
 interface Props {
@@ -10,19 +10,29 @@ interface Props {
 
 export const KitchenManager: React.FC<Props> = ({ userId }) => {
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [processingId, setProcessingId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadInventory();
+    loadData();
   }, [userId]);
 
-  const loadInventory = async () => {
+  const loadData = async () => {
     setLoading(true);
+    const [inventoryData, locationsData] = await Promise.all([
+      getUserInventory(userId),
+      getUserLocations(userId)
+    ]);
+    setItems(inventoryData);
+    setLocations(locationsData);
+    setLoading(false);
+  };
+
+  const loadInventory = async () => {
     const data = await getUserInventory(userId);
     setItems(data);
-    setLoading(false);
   };
 
   const handleToggle = async (item: InventoryItem) => {
@@ -42,6 +52,37 @@ export const KitchenManager: React.FC<Props> = ({ userId }) => {
     } 
     // We do NOT remove it from the list here anymore. 
     // It remains in the list as "Out of Stock" (Staple Management)
+    
+    setProcessingId(null);
+  };
+
+  const handleLocationChange = async (itemId: string, newLocationId: string) => {
+    setProcessingId(itemId);
+    
+    // Find the new location name
+    const newLocationName = newLocationId 
+      ? locations.find(l => l.id === newLocationId)?.name || 'Unsorted'
+      : 'Unsorted';
+    
+    // Optimistic UI update
+    setItems(prev => prev.map(i => 
+      i.id === itemId 
+        ? { 
+            ...i, 
+            locationId: newLocationId || undefined,
+            locationName: newLocationName
+          } 
+        : i
+    ));
+    
+    // Update in database
+    const success = await updateInventoryLocation(itemId, newLocationId || null);
+    
+    if (!success) {
+      // Revert on failure
+      await loadInventory();
+      alert("Failed to update location. Please try again.");
+    }
     
     setProcessingId(null);
   };
@@ -113,14 +154,30 @@ export const KitchenManager: React.FC<Props> = ({ userId }) => {
                        <div className="divide-y divide-slate-800">
                            {groupedItems[location].map(item => (
                                <div key={item.id} className={`p-4 flex items-center justify-between hover:bg-slate-800/50 transition-colors group ${!item.inStock ? 'opacity-50 grayscale hover:opacity-100 hover:grayscale-0' : ''}`}>
-                                   <div>
+                                   <div className="flex-1">
                                        <p className={`font-medium transition-colors ${item.inStock ? 'text-slate-200 group-hover:text-white' : 'text-slate-500 group-hover:text-slate-300'}`}>
                                            {item.name}
                                        </p>
                                        <p className="text-xs text-slate-500">{item.category || 'General'}</p>
                                    </div>
                                    
-                                   <div className="flex items-center gap-3">
+                                   <div className="flex items-center gap-2 sm:gap-3">
+                                       {/* Location Selector */}
+                                       <select
+                                           value={item.locationId || ''}
+                                           onChange={(e) => handleLocationChange(item.id, e.target.value)}
+                                           disabled={processingId === item.id}
+                                           className="text-xs bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-300 hover:border-slate-600 focus:border-lime-500 outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                           title="Change storage location"
+                                       >
+                                           <option value="">Unsorted</option>
+                                           {locations.map(loc => (
+                                               <option key={loc.id} value={loc.id}>
+                                                   {loc.name}
+                                               </option>
+                                           ))}
+                                       </select>
+                                       
                                        {!item.inStock && (
                                            <span className="text-[10px] uppercase font-bold text-orange-500 bg-orange-900/20 px-2 py-1 rounded">Out</span>
                                        )}

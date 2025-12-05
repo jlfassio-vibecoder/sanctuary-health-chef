@@ -125,6 +125,8 @@ export interface InventoryItem {
   id: string; // user_inventory_id
   ingredientId: string; // canonical_id
   name: string;
+  quantity?: number; // Database: quantity field
+  unit?: string; // Database: unit field
   locationId?: string;
   locationName?: string; // For display
   category?: string; // Produce, Dairy, etc.

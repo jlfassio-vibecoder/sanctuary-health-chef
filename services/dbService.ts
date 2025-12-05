@@ -727,25 +727,63 @@ export const commitShoppingAudit = async (userId: string, auditItems: AuditItem[
             if (invError) console.error("Inventory update error:", invError);
         }
 
-        // C. Add to Shopping List
+        // C. Add to Shopping List with Deduplication
         // Database schema: uses ingredient_name (TEXT) and is_purchased (not is_checked)
+        // Uses partial unique index to prevent duplicate unpurchased items
         if (toBuyItems.length > 0) {
-            const shoppingListPayload = toBuyItems.map(item => ({
-                user_id: userId,
-                ingredient_name: item.name, // Use name instead of canonicalId
-                recipe_id: recipeId || null,
-                is_purchased: false, // Database uses is_purchased
-                quantity: parseFloat(item.qty) || null,
-                unit: item.unit || null
-            }));
-
-            if (shoppingListPayload.length > 0) {
-                const { error: shopError } = await supabase
-                    .schema('chef')
-                    .from('shopping_list')
-                    .insert(shoppingListPayload);
-                if (shopError) throw shopError;
-            }
+            // Fetch existing unpurchased items for these ingredients
+            const ingredientNames = toBuyItems.map(i => i.name);
+            const { data: existing } = await supabase
+                .schema('chef')
+                .from('shopping_list')
+                .select('*')
+                .eq('user_id', userId)
+                .eq('is_purchased', false)
+                .in('ingredient_name', ingredientNames);
+            
+            // Create a map of existing items (normalized by lowercase name)
+            const existingMap = new Map<string, any>(
+                (existing || []).map((item: any) => [item.ingredient_name.toLowerCase(), item])
+            );
+            
+            // Merge new items with existing, summing quantities when units match
+            const upsertPayload = toBuyItems.map(item => {
+                const existingItem = existingMap.get(item.name.toLowerCase());
+                
+                if (existingItem && existingItem.unit === item.unit) {
+                    // Sum quantities if units match
+                    return {
+                        ...existingItem,
+                        quantity: (existingItem.quantity || 0) + (parseFloat(item.qty) || 0),
+                        recipe_id: null // Multiple recipes
+                    };
+                } else if (existingItem && existingItem.unit !== item.unit) {
+                    // Different unit - replace with new item (keeps latest unit)
+                    return {
+                        ...existingItem,
+                        quantity: parseFloat(item.qty) || null,
+                        unit: item.unit || null,
+                        recipe_id: recipeId || null
+                    };
+                } else {
+                    // New item
+                    return {
+                        user_id: userId,
+                        ingredient_name: item.name,
+                        recipe_id: recipeId || null,
+                        is_purchased: false,
+                        quantity: parseFloat(item.qty) || null,
+                        unit: item.unit || null
+                    };
+                }
+            });
+            
+            const { error: shopError } = await supabase
+                .schema('chef')
+                .from('shopping_list')
+                .upsert(upsertPayload, { onConflict: 'user_id,ingredient_name' });
+            
+            if (shopError) throw shopError;
         }
 
         return true;
@@ -827,15 +865,18 @@ export const moveShoppingToInventory = async (
     try {
         // 1. Prepare Inventory Upserts
         // Database schema: user_inventory uses ingredient_name (TEXT), no in_stock column
-        const upserts = itemsToMove.map(item => {
+        // Deduplicate items by ingredient_name (keep last location for duplicates)
+        const uniqueItems = new Map<string, any>();
+        itemsToMove.forEach(item => {
             const locId = locationMap[item.name];
-            return {
+            uniqueItems.set(item.name.toLowerCase(), {
                 user_id: userId,
-                ingredient_name: item.name, // Database uses ingredient_name
+                ingredient_name: item.name,
                 location_id: locId
-                // Note: No in_stock column in database - items in inventory are assumed to be in stock
-            };
+            });
         });
+        
+        const upserts = Array.from(uniqueItems.values());
 
         // 2. Upsert to Inventory
         // Database has unique constraint on (user_id, ingredient_name)
@@ -859,13 +900,7 @@ export const moveShoppingToInventory = async (
         return { success: true };
     } catch (e: any) {
         console.error("Error moving to inventory", e);
-        let msg = extractErrorMessage(e);
-
-        // User-friendly hint for the common "missing constraint" error
-        if (msg.includes("ON CONFLICT") || msg.includes("unique constraint") || msg.includes("PGRST204")) {
-            msg = "Database Schema Issue: The system cannot update existing inventory items because a unique constraint is missing. Please go to Settings > 'Copy Full Database Schema' and run it in the Supabase SQL Editor.";
-        }
-        
+        const msg = extractErrorMessage(e);
         return { success: false, message: msg };
     }
 };
@@ -932,31 +967,42 @@ export const updateInventoryStatus = async (
             
             if (delError) throw delError;
 
-            // 2. Add to shopping list (uses ingredient_name and is_purchased)
-            const { data: existing } = await supabase
-                .schema('chef')
-                .from('shopping_list')
-                .select('id')
-                .eq('user_id', userId)
-                .eq('ingredient_name', inventoryItem.name) // Use name
-                .eq('is_purchased', false) // Database uses is_purchased
-                .single();
-            
-            if (!existing) {
-                await supabase.schema('chef').from('shopping_list').insert({
-                    user_id: userId,
-                    ingredient_name: inventoryItem.name, // Use name
-                    is_purchased: false, // Database uses is_purchased
-                    quantity: inventoryItem.quantity,
-                    unit: inventoryItem.unit
-                });
-            }
+            // 2. Add to shopping list using upsert (leverages partial unique index)
+            await supabase.schema('chef').from('shopping_list').upsert({
+                user_id: userId,
+                ingredient_name: inventoryItem.name,
+                is_purchased: false,
+                quantity: inventoryItem.quantity,
+                unit: inventoryItem.unit
+            }, { onConflict: 'user_id,ingredient_name' });
         }
         // If marking as in stock, do nothing (item already exists in inventory)
 
         return true;
     } catch (e) {
         console.error("Error updating inventory status:", e);
+        return false;
+    }
+};
+
+// Update Inventory Item Location
+export const updateInventoryLocation = async (
+    inventoryItemId: string,
+    newLocationId: string | null
+): Promise<boolean> => {
+    if (!supabase) return false;
+    
+    try {
+        const { error } = await supabase
+            .schema('chef')
+            .from('user_inventory')
+            .update({ location_id: newLocationId })
+            .eq('id', inventoryItemId);
+        
+        if (error) throw error;
+        return true;
+    } catch (e) {
+        console.error("Error updating inventory location:", e);
         return false;
     }
 };
