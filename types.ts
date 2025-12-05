@@ -94,10 +94,19 @@ export interface Recipe {
     difficulty: string;
     chefNote: string;
     totalTime: number;
-    calories: number;
+    prepTime?: number; // Database: prep_time_minutes
+    cookTime?: number; // Database: cook_time_minutes
+    calories: number; // Database: total_calories
+    protein?: number; // Database: protein_grams
+    carbs?: number; // Database: carbs_grams
+    fat?: number; // Database: fat_grams
+    mealType?: string; // Database: meal_type
+    servings?: number; // Database: servings
     cuisine: string;
     chefPersona: string; // Formerly trainerType
     imageUrl?: string;
+    isFavorite?: boolean; // Database: is_favorite
+    isPublic?: boolean; // Database: is_public
     createdAt?: string;
     sections: RecipeSection[];
 }

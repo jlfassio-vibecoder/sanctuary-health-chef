@@ -342,18 +342,24 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
     let recipeId = recipe.id;
 
     // 1. Insert/Update Parent Recipe Table
+    // Map Recipe object fields to actual database columns
     const recipePayload = {
       user_id: userId,
-      title: recipe.title,
-      description: recipe.description,
-      difficulty: recipe.difficulty,
-      chef_note: recipe.chefNote,
-      total_time: recipe.totalTime,
-      calories: recipe.calories,
-      cuisine: recipe.cuisine,
-      chef_persona: recipe.chefPersona,
-      image_url: recipe.imageUrl,
-      created_at: recipe.createdAt || new Date().toISOString()
+      name: recipe.title, // Database uses 'name' not 'title'
+      meal_type: recipe.mealType || null,
+      cuisine: recipe.cuisine || null,
+      servings: recipe.servings || 1,
+      prep_time_minutes: recipe.prepTime || null,
+      cook_time_minutes: recipe.cookTime || null,
+      total_calories: recipe.calories || null, // Database uses 'total_calories' not 'calories'
+      protein_grams: recipe.protein || null,
+      carbs_grams: recipe.carbs || null,
+      fat_grams: recipe.fat || null,
+      is_favorite: recipe.isFavorite || false,
+      is_public: recipe.isPublic || false,
+      chef_persona: recipe.chefPersona || null,
+      created_at: recipe.createdAt || new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
 
     let data, error;
@@ -458,17 +464,27 @@ export const getSavedRecipes = async (userId: string): Promise<Recipe[]> => {
                 metadata: c.metadata || {}
             }));
 
+            // Map database columns to Recipe interface fields
             return {
                 id: r.id,
-                title: r.title,
-                description: r.description,
-                difficulty: r.difficulty,
-                chefNote: r.chef_note,
-                totalTime: r.total_time,
-                calories: r.calories,
-                cuisine: r.cuisine,
-                chefPersona: r.chef_persona,
-                imageUrl: r.image_url,
+                title: r.name, // Database uses 'name' not 'title'
+                description: '', // Not stored in recipes table
+                difficulty: '', // Not stored in recipes table
+                chefNote: '', // Not stored in recipes table
+                totalTime: (r.prep_time_minutes || 0) + (r.cook_time_minutes || 0), // Combine prep + cook
+                prepTime: r.prep_time_minutes || 0,
+                cookTime: r.cook_time_minutes || 0,
+                calories: r.total_calories || 0, // Database uses 'total_calories'
+                protein: r.protein_grams || 0,
+                carbs: r.carbs_grams || 0,
+                fat: r.fat_grams || 0,
+                mealType: r.meal_type || '',
+                cuisine: r.cuisine || '',
+                servings: r.servings || 1,
+                chefPersona: r.chef_persona || '',
+                imageUrl: '', // Not stored in recipes table
+                isFavorite: r.is_favorite || false,
+                isPublic: r.is_public || false,
                 createdAt: r.created_at,
                 sections: sections
             };
