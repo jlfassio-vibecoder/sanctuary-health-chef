@@ -343,16 +343,39 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
 
     // 1. Insert/Update Parent Recipe Table
     // Map Recipe object fields to actual database columns
+    
+    // Normalize difficulty to match database constraint (easy, medium, hard)
+    const normalizeDifficulty = (diff: string): string | null => {
+      if (!diff) return null;
+      const lower = diff.toLowerCase();
+      if (lower.includes('easy') || lower.includes('beginner')) return 'easy';
+      if (lower.includes('medium') || lower.includes('intermediate')) return 'medium';
+      if (lower.includes('hard') || lower.includes('advanced') || lower.includes('difficult')) return 'hard';
+      return null; // Invalid value - set to null
+    };
+    
+    // Normalize meal_type to match database constraint
+    const normalizeMealType = (mealType: string | undefined): string | null => {
+      if (!mealType) return null;
+      const lower = mealType.toLowerCase().replace(/\s+/g, '_');
+      const validTypes = ['breakfast', 'lunch', 'dinner', 'snack', 'pre_workout', 'post_workout'];
+      // Check if it matches one of the valid types
+      for (const validType of validTypes) {
+        if (lower.includes(validType.replace('_', ''))) return validType;
+      }
+      return null; // Invalid value - set to null
+    };
+    
     const recipePayload = {
       user_id: userId,
       name: recipe.title, // Database: 'name'
       description: recipe.description || null, // Database: 'description'
-      meal_type: recipe.mealType || null, // Database: 'meal_type'
+      meal_type: normalizeMealType(recipe.mealType), // Database: 'meal_type' (breakfast|lunch|dinner|snack|pre_workout|post_workout)
       cuisine_type: recipe.cuisine || null, // Database: 'cuisine_type' not 'cuisine'
       servings: recipe.servings || 1, // Database: 'servings'
       prep_time_minutes: recipe.prepTime || null, // Database: 'prep_time_minutes'
       cook_time_minutes: recipe.cookTime || null, // Database: 'cook_time_minutes'
-      difficulty_level: recipe.difficulty || null, // Database: 'difficulty_level'
+      difficulty_level: normalizeDifficulty(recipe.difficulty), // Database: 'difficulty_level' (easy|medium|hard only)
       dietary_tags: recipe.dietaryTags || [], // Database: 'dietary_tags' (JSONB)
       allergens: recipe.allergens || [], // Database: 'allergens' (JSONB)
       image_url: recipe.imageUrl || null, // Database: 'image_url'
