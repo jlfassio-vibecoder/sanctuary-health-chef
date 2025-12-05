@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { Recipe, RecipeSection, UserProfile, AuditItem, Ingredient, ShoppingListItem, Location, InventoryItem } from '../types';
+import { DEFAULT_UNITS } from '../constants/defaults';
 
 // Robust helper to find environment variables
 const getEnvVar = (key: string): string | undefined => {
@@ -199,10 +200,10 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
             weight: Number(data.weight) ?? 170,
             height: Number(data.height) ?? 70,
             units: {
-                system: (preferredUnits.system || 'imperial') as 'imperial' | 'metric',
-                weight: (preferredUnits.weight || 'lbs') as 'lbs' | 'kg',
-                height: (preferredUnits.height || 'inches') as 'inches' | 'cm',
-                distance: (preferredUnits.distance || 'miles') as 'miles' | 'km'
+                system: (preferredUnits.system || DEFAULT_UNITS.system) as 'imperial' | 'metric',
+                weight: (preferredUnits.weight || DEFAULT_UNITS.weight) as 'lbs' | 'kg',
+                height: (preferredUnits.height || DEFAULT_UNITS.height) as 'inches' | 'cm',
+                distance: (preferredUnits.distance || DEFAULT_UNITS.distance) as 'miles' | 'km'
             },
             goals: fitnessGoals.goals || [],
             medicalConditions: fitnessGoals.dietary_restrictions || [],
@@ -231,10 +232,10 @@ export const saveUserProfile = async (userId: string, profile: UserProfile): Pro
             weight: profile.weight,
             height: profile.height,
             preferred_units: {
-                system: profile.units?.system || 'imperial',
-                weight: profile.units?.weight || 'lbs',
-                height: profile.units?.height || 'inches',
-                distance: profile.units?.distance || 'miles'
+                system: profile.units?.system || DEFAULT_UNITS.system,
+                weight: profile.units?.weight || DEFAULT_UNITS.weight,
+                height: profile.units?.height || DEFAULT_UNITS.height,
+                distance: profile.units?.distance || DEFAULT_UNITS.distance
             },
             fitness_goals: {
                 goals: profile.goals || [],

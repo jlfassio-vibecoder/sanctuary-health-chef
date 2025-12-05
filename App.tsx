@@ -11,21 +11,13 @@ import { generateRecipe, updateGeminiApiKey, getGeminiApiKey } from './services/
 import { verifyDatabaseSchema, getUserProfile, saveUserProfile, supabase } from './services/dbService';
 import { UserProfile, DailyContext, TrainerType, Recipe } from './types';
 import { ChefHat, BookOpen, Database, AlertTriangle, Loader2, Settings, X, Copy, User, ShoppingCart, Archive } from 'lucide-react';
+import { DEFAULT_PROFILE_VALUES } from './constants/defaults';
 
 // DEBUG LOGGING
 console.log('📦 App.tsx module loaded (Multi-Schema Architecture)');
 
 const INITIAL_PROFILE: UserProfile = {
-  age: 30,
-  gender: 'Male',
-  weight: 175,
-  height: 70,
-  units: {
-    system: 'imperial',
-    weight: 'lbs',
-    height: 'inches',
-    distance: 'miles'
-  },
+  ...DEFAULT_PROFILE_VALUES,
   fitnessLevel: 'Intermediate',
   goals: ['Healthy Eating'],
   injuries: [],
