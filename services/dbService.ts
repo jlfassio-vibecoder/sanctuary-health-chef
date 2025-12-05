@@ -364,9 +364,9 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
       if (!mealType) return null;
       const lower = mealType.toLowerCase().replace(/\s+/g, '_');
       const validTypes = ['breakfast', 'lunch', 'dinner', 'snack', 'pre_workout', 'post_workout'];
-      // Check if it matches one of the valid types
+      // Check if it matches one of the valid types (exact match or contains)
       for (const validType of validTypes) {
-        if (lower.includes(validType.replace('_', ''))) return validType;
+        if (lower === validType || lower.includes(validType)) return validType;
       }
       return null; // Invalid value - set to null
     };
