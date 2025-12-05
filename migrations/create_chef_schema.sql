@@ -1,6 +1,10 @@
 -- ================================================
 -- FitCopilot Chef - Database Schema Migration
--- Creates the chef schema and all required tables
+-- Creates the 'chef' schema and all required tables
+-- 
+-- NOTE: This defines the 'chef' schema for the multi-schema architecture.
+--       The actual schema already exists in the database.
+--       This file serves as documentation and reference.
 -- ================================================
 
 -- Create chef schema
