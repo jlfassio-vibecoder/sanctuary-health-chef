@@ -108,7 +108,7 @@ const App: React.FC = () => {
           return;
         }
 
-        console.log('✅ Chef App: Supabase session established!', data.user?.email);
+        console.log('✅ Chef App: Supabase session established!', data.session?.user?.email);
         // Session will be picked up by the auth state listener above
       } else {
         // Missing tokens - cannot establish session
