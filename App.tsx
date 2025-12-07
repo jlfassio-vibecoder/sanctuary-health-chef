@@ -87,22 +87,13 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!supabase) return;
 
-    console.log('📦 Chef App: Initializing SSO receiver...');
+    console.log('📦 Chef App: Initializing SSO receiver (server-side validation)...');
 
     ssoReceiver.initialize(async (tokenData) => {
       console.log('🔐 Chef App: SSO token received');
 
-      // Verify token
-      const userData = await ssoReceiver.verifyAndDecodeToken(tokenData.token);
-      
-      if (!userData) {
-        console.error('❌ Chef App: Failed to verify SSO token');
-        return;
-      }
-
-      console.log('✅ Chef App: SSO token verified for user:', userData.email);
-
-      // CRITICAL: Establish Supabase session
+      // ✅ CRITICAL: Establish Supabase session (server-side validation)
+      // NO client-side JWT verification - Supabase validates tokens server-side
       if (tokenData.access_token && tokenData.refresh_token) {
         console.log('🔑 Chef App: Establishing Supabase session...');
 
@@ -117,7 +108,7 @@ const App: React.FC = () => {
           return;
         }
 
-        console.log('✅ Chef App: Supabase session established!', data.user?.email);
+        console.log('✅ Chef App: Supabase session established!', data.session?.user?.email);
         // Session will be picked up by the auth state listener above
       } else {
         // Missing tokens - cannot establish session

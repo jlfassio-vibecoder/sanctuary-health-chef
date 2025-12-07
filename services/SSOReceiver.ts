@@ -1,4 +1,4 @@
-import * as jose from 'jose';
+import type { SupabaseClient, Session } from '@supabase/supabase-js';
 
 // Helper to get environment variables
 const getEnvVar = (key: string): string | undefined => {
@@ -25,47 +25,48 @@ const getEnvVar = (key: string): string | undefined => {
 };
 
 interface SSOTokenData {
-  token: string;
-  access_token: string;
-  refresh_token: string;
-  user: {
-    id: string;
-    email: string;
-    tier?: string;
-    app_access?: Record<string, boolean>;
-  };
-}
-
-interface DecodedToken {
-  sub: string;
-  email: string;
+  token: string;  // Custom JWT (metadata only - NOT verified client-side)
+  access_token: string;  // Supabase access token
+  refresh_token: string;  // Supabase refresh token
+  user_id?: string;
+  email?: string;
   tier?: string;
   app_access?: Record<string, boolean>;
-  iss?: string;
-  aud?: string | string[];
-  exp?: number;
+  expires_at?: string;
 }
 
+/**
+ * SSOReceiver - Secure SSO Token Receiver for Chef App
+ * 
+ * SECURITY MODEL:
+ * - NO client-side JWT verification
+ * - Uses only Supabase's auth.setSession() for server-side validation
+ * - Custom JWT treated as metadata only
+ * - JWT secret exists ONLY in Edge Function, never in client code
+ */
 class SSOReceiver {
   private messageListener: ((event: MessageEvent) => void) | null = null;
   private isInitialized = false;
 
   /**
    * Initialize SSO receiver to listen for tokens from Hub
+   * 
+   * @param onTokenReceived - Callback when SSO token is received
    */
-  initialize(onTokenReceived: (tokenData: SSOTokenData) => void) {
+  initialize(onTokenReceived: (tokenData: SSOTokenData) => void | Promise<void>) {
     if (this.isInitialized) {
       console.warn('🔐 SSOReceiver: Already initialized');
       return;
     }
 
-    console.log('🔐 SSOReceiver: Initializing...');
+    console.log('🔐 SSOReceiver: Initializing (server-side validation only)...');
 
     this.messageListener = async (event: MessageEvent) => {
       // Security: Only accept messages from Hub origin
       const hubUrl = getEnvVar('VITE_HUB_URL') || 'http://localhost:5175';
       const allowedOrigins = [
         hubUrl,
+        'https://fitcopilot.app',  // Production Hub
         'http://localhost:5175',
         'http://localhost:5174',
         'http://localhost:5173'
@@ -80,98 +81,80 @@ class SSOReceiver {
       if (event.data && event.data.type === 'SSO_TOKEN') {
         console.log('🔐 SSOReceiver: Received SSO token via postMessage');
 
-        const tokenData = event.data.payload;
+        const tokenData = event.data.payload || event.data.token;
 
-        if (!tokenData || !tokenData.token) {
-          console.error('❌ SSOReceiver: Invalid token data received');
+        if (!tokenData || !tokenData.access_token || !tokenData.refresh_token) {
+          console.error('❌ SSOReceiver: Invalid token data - missing Supabase credentials');
           return;
         }
 
-        // Verify token before processing
-        const userData = await this.verifyAndDecodeToken(tokenData.token);
+        console.log('✅ SSOReceiver: Token received with Supabase credentials');
 
-        if (!userData) {
-          console.error('❌ SSOReceiver: Token verification failed');
-          return;
-        }
-
-        console.log('✅ SSOReceiver: Token verified successfully for user:', userData.email);
-
-        // Store in localStorage for persistence
+        // Store in sessionStorage for persistence across page reloads within the same browser tab session
         try {
-          localStorage.setItem('sso_token', tokenData.token);
-          localStorage.setItem('sso_user', JSON.stringify(userData));
-          if (tokenData.access_token) {
-            localStorage.setItem('sso_access_token', tokenData.access_token);
-          }
-          if (tokenData.refresh_token) {
-            localStorage.setItem('sso_refresh_token', tokenData.refresh_token);
-          }
+          sessionStorage.setItem('sso_token_data', JSON.stringify(tokenData));
         } catch (e) {
-          console.warn('⚠️ SSOReceiver: Could not store token in localStorage:', e);
+          console.warn('⚠️ SSOReceiver: Could not store token in sessionStorage:', e);
         }
 
-        // Call the callback with full token data
-        onTokenReceived({
-          token: tokenData.token,
-          access_token: tokenData.access_token,
-          refresh_token: tokenData.refresh_token,
-          user: {
-            id: userData.sub,
-            email: userData.email,
-            tier: userData.tier,
-            app_access: userData.app_access,
-          }
-        });
+        // Call the callback with token data
+        // The callback should call establishSupabaseSession()
+        await onTokenReceived(tokenData);
       }
     };
 
     window.addEventListener('message', this.messageListener);
     this.isInitialized = true;
 
+    // Send ready message to Hub if in iframe
+    if (window.parent !== window) {
+      const hubOrigin = getEnvVar('VITE_HUB_URL') || 'http://localhost:5175';
+      window.parent.postMessage({ type: 'SSO_READY' }, hubOrigin);
+      console.log('✅ SSOReceiver: Sent SSO_READY message to Hub');
+    }
+
     console.log('✅ SSOReceiver: Listening for SSO tokens from Hub');
   }
 
   /**
-   * Verify and decode JWT token using jose library
+   * ⭐ CRITICAL: Establish Supabase session with server-side validation
+   * 
+   * This is the ONLY authentication method - no client-side JWT verification!
+   * Supabase validates the tokens server-side via its auth API.
+   * 
+   * @param supabaseClient - Initialized Supabase client
+   * @param tokenData - SSO token data with access_token and refresh_token
+   * @returns Authenticated session
    */
-  async verifyAndDecodeToken(token: string): Promise<DecodedToken | null> {
+  async establishSupabaseSession(
+    supabaseClient: SupabaseClient,
+    tokenData: SSOTokenData
+  ): Promise<Session | null> {
     try {
-      const jwtSecret = getEnvVar('VITE_SUPABASE_JWT_SECRET');
+      console.log('🔑 SSOReceiver: Establishing Supabase session (server-side validation)...');
 
-      if (!jwtSecret) {
-        console.error('❌ SSOReceiver: VITE_SUPABASE_JWT_SECRET not configured');
+      // ✅ SECURITY: Supabase validates tokens server-side
+      // No client-side JWT verification needed or wanted!
+      const { data, error } = await supabaseClient.auth.setSession({
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token,
+      });
+
+      if (error) {
+        console.error('❌ SSOReceiver: Failed to establish session:', error);
+        throw error;
+      }
+
+      if (!data.session) {
+        console.error('❌ SSOReceiver: No session returned from setSession');
         return null;
       }
 
-      console.log('🔐 SSOReceiver: Verifying token signature...');
-
-      // Convert secret to Uint8Array
-      const secret = new TextEncoder().encode(jwtSecret);
-
-      // Verify JWT signature with jose
-      const { payload } = await jose.jwtVerify(token, secret, {
-        issuer: 'fitcopilot-hub',
-        audience: 'fitcopilot-apps',
-      });
-
-      console.log('✅ SSOReceiver: Token signature verified');
-
-      // Extract user data from payload
-      const userData: DecodedToken = {
-        sub: payload.sub || '',
-        email: (payload.email as string) || '',
-        tier: payload.tier as string | undefined,
-        app_access: payload.app_access as Record<string, boolean> | undefined,
-        iss: payload.iss,
-        aud: payload.aud,
-        exp: payload.exp,
-      };
-
-      return userData;
+      console.log('✅ SSOReceiver: Supabase session established:', data.session.user.email);
+      return data.session;
     } catch (error) {
-      console.error('❌ SSOReceiver: Token verification failed:', error);
-      return null;
+      console.error('❌ SSOReceiver: Session establishment failed:', error);
+      throw error;
     }
   }
 
@@ -188,37 +171,34 @@ class SSOReceiver {
   }
 
   /**
-   * Check if SSO token exists in localStorage
+   * Check if SSO token exists in sessionStorage
    */
   hasSSOToken(): boolean {
     try {
-      return !!localStorage.getItem('sso_token');
+      return !!sessionStorage.getItem('sso_token_data');
     } catch (e) {
       return false;
     }
   }
 
   /**
-   * Get stored SSO user data
+   * Get stored SSO token data
    */
-  getStoredUser(): DecodedToken | null {
+  getStoredTokenData(): SSOTokenData | null {
     try {
-      const userData = localStorage.getItem('sso_user');
-      return userData ? JSON.parse(userData) : null;
+      const data = sessionStorage.getItem('sso_token_data');
+      return data ? JSON.parse(data) : null;
     } catch (e) {
       return null;
     }
   }
 
   /**
-   * Clear SSO data from localStorage
+   * Clear SSO data from sessionStorage
    */
   clearSSOData() {
     try {
-      localStorage.removeItem('sso_token');
-      localStorage.removeItem('sso_user');
-      localStorage.removeItem('sso_access_token');
-      localStorage.removeItem('sso_refresh_token');
+      sessionStorage.removeItem('sso_token_data');
       console.log('🔐 SSOReceiver: SSO data cleared');
     } catch (e) {
       console.warn('⚠️ SSOReceiver: Could not clear SSO data:', e);
@@ -228,3 +208,40 @@ class SSOReceiver {
 
 // Export singleton instance
 export const ssoReceiver = new SSOReceiver();
+
+/**
+ * ⚠️ NOTE: useSSOAuth Hook Removed
+ * 
+ * The useSSOAuth hook was removed due to singleton conflicts.
+ * 
+ * ISSUE:
+ * - Hook called ssoReceiver.initialize() which conflicts with App.tsx initialization
+ * - Singleton's early return prevented hook's callback from registering
+ * - Hook's cleanup() broke singleton pattern for other components
+ * 
+ * RECOMMENDED PATTERN:
+ * Initialize the SSO receiver once in your App component:
+ * 
+ * ```typescript
+ * // In App.tsx
+ * useEffect(() => {
+ *   ssoReceiver.initialize(async (tokenData) => {
+ *     const { data, error } = await supabase.auth.setSession({
+ *       access_token: tokenData.access_token,
+ *       refresh_token: tokenData.refresh_token,
+ *     });
+ *     if (error) console.error('Failed to set session:', error);
+ *   });
+ *   
+ *   return () => ssoReceiver.cleanup();
+ * }, []);
+ * 
+ * // Use Supabase's auth state listener for session state
+ * useEffect(() => {
+ *   const { data: { subscription } } = supabase.auth.onAuthStateChange(
+ *     (_event, session) => setSession(session)
+ *   );
+ *   return () => subscription.unsubscribe();
+ * }, []);
+ * ```
+ */
