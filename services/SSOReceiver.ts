@@ -3,9 +3,14 @@ import * as jose from 'jose';
 // Helper to get environment variables
 const getEnvVar = (key: string): string | undefined => {
   try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
-      // @ts-ignore
+    if (
+      typeof import.meta !== 'undefined' &&
+      'env' in import.meta &&
+      typeof import.meta.env === 'object' &&
+      import.meta.env &&
+      key in import.meta.env &&
+      typeof import.meta.env[key] === 'string'
+    ) {
       return import.meta.env[key];
     }
   } catch (e) { /* ignore */ }
