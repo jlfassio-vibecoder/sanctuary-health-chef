@@ -106,7 +106,7 @@ export default function AccountInformation({ user }: AccountInformationProps) {
         {/* App Info */}
         <div className="mt-6 pt-4 border-t border-slate-700">
           <div className="text-xs text-slate-400">
-            <span className="font-semibold">App:</span> FitCopilot Chef
+            <span className="font-semibold">App:</span> Fitcopilot Chef
           </div>
           <div className="text-xs text-slate-400 mt-1">
             <span className="font-semibold">Database:</span> Shared (chef schema)

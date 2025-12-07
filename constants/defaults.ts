@@ -17,12 +17,18 @@ export const DEFAULT_UNITS: UnitSystem = {
 
 /**
  * Default profile values
+ * Used when user profile is not found or cannot be loaded
  */
 export const DEFAULT_PROFILE_VALUES = {
   age: 30,
-  gender: 'Male' as const,
-  weight: 175,
+  gender: 'Other' as const,
+  weight: 170,
   height: 70,
-  units: DEFAULT_UNITS
+  units: DEFAULT_UNITS,
+  goals: [] as string[],
+  medicalConditions: [] as string[],
+  injuries: [] as string[],
+  preferences: [] as string[],
+  fitnessLevel: 'Intermediate' as const
 };
 

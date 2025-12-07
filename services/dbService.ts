@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { Recipe, RecipeSection, UserProfile, AuditItem, Ingredient, ShoppingListItem, Location, InventoryItem } from '../types';
-import { DEFAULT_UNITS } from '../constants/defaults';
+import { DEFAULT_UNITS, DEFAULT_PROFILE_VALUES } from '../constants/defaults';
 
 // Robust helper to find environment variables
 const getEnvVar = (key: string): string | undefined => {
@@ -41,6 +41,7 @@ if (SUPABASE_URL && SUPABASE_KEY) {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
+        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
       },
     });
     
@@ -138,7 +139,7 @@ export const verifyDatabaseSchema = async (): Promise<{ success: boolean; messag
         // Check User Profiles (in public schema)
         const { error: profilesError } = await supabase
             .schema('public')  // ✅ Use public schema for profiles
-            .from('user_profiles')
+            .from('profiles')
             .select('id')
             .limit(1);
 
@@ -163,7 +164,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
     try {
         let { data, error } = await supabase
             .schema('public')  // ✅ Use public schema for profiles
-            .from('user_profiles')
+            .from('profiles')
             .select('*')
             .eq('id', userId)
             .single();
@@ -172,7 +173,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
         if (!data && (error?.code === 'PGRST116' || !error)) {
              const { data: data2 } = await supabase
                 .schema('public')  // ✅ Use public schema for profiles
-                .from('user_profiles')
+                .from('profiles')
                 .select('*')
                 .eq('user_id', userId)
                 .single();
@@ -180,15 +181,29 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
         }
 
         if (error) {
-            if (error.code === 'PGRST116') {
-                console.log(`ℹ️ Creating new profile for ${userId}...`);
+            // Handle table not found (Hub hasn't created it yet)
+            if (error.code === '42P01' || error.code === 'PGRST204') {
+                console.warn(
+                    '⚠️ Hub profiles table not found. Using defaults. (Table will be created by Hub app)'
+                );
+            } else if (error.code === 'PGRST116') {
+                // No rows returned - user doesn't have a profile yet
+                console.log(`ℹ️ No Hub profile found for user ${userId}, using defaults`);
+            } else if (error.code === '3F000') {
+                // Schema not found
+                console.warn('⚠️ Public schema issue. Using defaults.');
             } else {
-                console.error("Error fetching profile:", error);
+                console.error("Error fetching user profile from database:", error);
             }
-            return null;
+            
+            // Return defaults - app continues to work
+            return DEFAULT_PROFILE_VALUES;
         }
 
-        if (!data) return null;
+        if (!data) {
+            // No data but no error - return defaults
+            return DEFAULT_PROFILE_VALUES;
+        }
 
         // Extract fitness_goals and preferred_units from JSONB fields
         const fitnessGoals = data.fitness_goals || {};
@@ -249,7 +264,7 @@ export const saveUserProfile = async (userId: string, profile: UserProfile): Pro
 
         const { error } = await supabase
             .schema('public')  // ✅ Use public schema for profiles
-            .from('user_profiles')
+            .from('profiles')
             .upsert(payload, { onConflict: 'id' }); 
 
         if (error) {

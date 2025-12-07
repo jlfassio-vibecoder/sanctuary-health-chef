@@ -9,6 +9,7 @@ import { AuthPage } from './components/AuthPage';
 import { AccountPage } from './components/AccountPage';
 import { generateRecipe, updateGeminiApiKey, getGeminiApiKey } from './services/geminiService';
 import { verifyDatabaseSchema, getUserProfile, saveUserProfile, supabase } from './services/dbService';
+import { ssoReceiver } from './services/SSOReceiver';
 import { UserProfile, DailyContext, TrainerType, Recipe } from './types';
 import { ChefHat, BookOpen, Database, AlertTriangle, Loader2, Settings, X, Copy, User, ShoppingCart, Archive } from 'lucide-react';
 import { DEFAULT_PROFILE_VALUES } from './constants/defaults';
@@ -80,6 +81,61 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
+  }, []);
+
+  // SSO Integration - Listen for tokens from Hub
+  useEffect(() => {
+    if (!supabase) return;
+
+    console.log('📦 Chef App: Initializing SSO receiver...');
+
+    ssoReceiver.initialize(async (tokenData) => {
+      console.log('🔐 Chef App: SSO token received');
+
+      // Verify token
+      const userData = await ssoReceiver.verifyAndDecodeToken(tokenData.token);
+      
+      if (!userData) {
+        console.error('❌ Chef App: Failed to verify SSO token');
+        return;
+      }
+
+      console.log('✅ Chef App: SSO token verified for user:', userData.email);
+
+      // CRITICAL: Establish Supabase session
+      if (tokenData.access_token && tokenData.refresh_token) {
+        console.log('🔑 Chef App: Establishing Supabase session...');
+
+        const { data, error } = await supabase.auth.setSession({
+          access_token: tokenData.access_token,
+          refresh_token: tokenData.refresh_token,
+        });
+
+        if (error) {
+          console.error('❌ Chef App: Failed to set Supabase session:', error);
+          ssoReceiver.clearSSOData();
+          return;
+        }
+
+        console.log('✅ Chef App: Supabase session established!', data.user?.email);
+        // Session will be picked up by the auth state listener above
+      } else {
+        // Missing tokens - cannot establish session
+        console.error('❌ Chef App: SSO token missing required credentials');
+        console.error('   Missing:', {
+          access_token: !tokenData.access_token,
+          refresh_token: !tokenData.refresh_token
+        });
+        
+        // Clear invalid SSO data to prevent repeated failures
+        ssoReceiver.clearSSOData();
+        
+        // User will see AuthPage and can use standalone authentication
+        console.log('ℹ️ Falling back to standalone authentication');
+      }
+    });
+
+    return () => ssoReceiver.cleanup();
   }, []);
 
   // Load User Data
@@ -307,7 +363,7 @@ create policy "Users manage shopping list" on chef.shopping_list for all using (
             <div className="bg-lime-500 p-2 rounded-lg transform group-hover:rotate-12 transition-transform">
               <ChefHat className="text-slate-900 w-5 h-5" />
             </div>
-            <span className="text-xl font-bold text-white tracking-tight hidden sm:inline">FitCopilot <span className="text-lime-400">Chef</span></span>
+            <span className="text-xl font-bold text-white tracking-tight hidden sm:inline">Fit<span className="text-lime-400">copilot</span> Chef</span>
           </div>
           
           {/* Desktop Nav */}
