@@ -3,7 +3,6 @@ import { supabase } from '../services/dbService';
 import { ChefHat, Loader2, Mail, Lock, ArrowRight, AlertTriangle } from 'lucide-react';
 
 export const AuthPage: React.FC = () => {
-  const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -21,20 +20,11 @@ export const AuthPage: React.FC = () => {
     }
 
     try {
-        if (isSignUp) {
-            const { error } = await supabase.auth.signUp({
-                email,
-                password,
-            });
-            if (error) throw error;
-            alert("Account created! You are now signed in.");
-        } else {
-            const { error } = await supabase.auth.signInWithPassword({
-                email,
-                password,
-            });
-            if (error) throw error;
-        }
+        const { error } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+        });
+        if (error) throw error;
     } catch (err: any) {
         setError(err.message || "Authentication failed");
     } finally {
@@ -58,7 +48,7 @@ export const AuthPage: React.FC = () => {
         {/* Auth Card */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
             <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                {isSignUp ? "Create an Account" : "Welcome Back"}
+                Welcome Back
             </h2>
 
             {error && (
@@ -109,7 +99,7 @@ export const AuthPage: React.FC = () => {
                         <Loader2 className="w-5 h-5 animate-spin" />
                     ) : (
                         <>
-                            {isSignUp ? "Create Account" : "Sign In"} <ArrowRight className="w-5 h-5" />
+                            Sign In <ArrowRight className="w-5 h-5" />
                         </>
                     )}
                 </button>
@@ -117,13 +107,15 @@ export const AuthPage: React.FC = () => {
 
             <div className="mt-6 pt-6 border-t border-slate-800 text-center">
                 <p className="text-slate-400 text-sm">
-                    {isSignUp ? "Already have an account?" : "New to FitCopilot?"}
-                    <button 
-                        onClick={() => setIsSignUp(!isSignUp)}
-                        className="text-lime-400 font-bold hover:underline ml-2"
+                    New to FitCopilot?{' '}
+                    <a 
+                        href="https://generateworkout.app"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-lime-400 font-bold hover:underline"
                     >
-                        {isSignUp ? "Sign In" : "Sign Up"}
-                    </button>
+                        Create an account at the Hub
+                    </a>
                 </p>
             </div>
         </div>
