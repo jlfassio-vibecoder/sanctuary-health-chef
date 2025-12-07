@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import type { SupabaseClient, Session, User } from '@supabase/supabase-js';
+import type { SupabaseClient, Session } from '@supabase/supabase-js';
 
 // Helper to get environment variables
 const getEnvVar = (key: string): string | undefined => {
@@ -91,7 +90,7 @@ class SSOReceiver {
 
         console.log('✅ SSOReceiver: Token received with Supabase credentials');
 
-        // Store in sessionStorage for persistence across page reloads
+        // Store in sessionStorage for persistence across page reloads within the same browser tab session
         try {
           sessionStorage.setItem('sso_token_data', JSON.stringify(tokenData));
         } catch (e) {
@@ -211,76 +210,38 @@ class SSOReceiver {
 export const ssoReceiver = new SSOReceiver();
 
 /**
- * React Hook: useSSOAuth
+ * ⚠️ NOTE: useSSOAuth Hook Removed
  * 
- * Handles SSO authentication with automatic session establishment.
- * Use this in your App component for seamless SSO integration.
+ * The useSSOAuth hook was removed due to singleton conflicts.
  * 
- * @param supabaseClient - Initialized Supabase client
- * @returns Authentication state
+ * ISSUE:
+ * - Hook called ssoReceiver.initialize() which conflicts with App.tsx initialization
+ * - Singleton's early return prevented hook's callback from registering
+ * - Hook's cleanup() broke singleton pattern for other components
  * 
- * @example
+ * RECOMMENDED PATTERN:
+ * Initialize the SSO receiver once in your App component:
+ * 
  * ```typescript
- * const { user, session, isLoading, error } = useSSOAuth(supabase);
+ * // In App.tsx
+ * useEffect(() => {
+ *   ssoReceiver.initialize(async (tokenData) => {
+ *     const { data, error } = await supabase.auth.setSession({
+ *       access_token: tokenData.access_token,
+ *       refresh_token: tokenData.refresh_token,
+ *     });
+ *     if (error) console.error('Failed to set session:', error);
+ *   });
+ *   
+ *   return () => ssoReceiver.cleanup();
+ * }, []);
  * 
- * if (isLoading) return <div>Loading...</div>;
- * if (error) return <div>Error: {error.message}</div>;
- * if (!session) return <AuthPage />;
- * 
- * return <div>Welcome, {user.email}!</div>;
+ * // Use Supabase's auth state listener for session state
+ * useEffect(() => {
+ *   const { data: { subscription } } = supabase.auth.onAuthStateChange(
+ *     (_event, session) => setSession(session)
+ *   );
+ *   return () => subscription.unsubscribe();
+ * }, []);
  * ```
  */
-export function useSSOAuth(supabaseClient: SupabaseClient) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    // Check for existing session
-    supabaseClient.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setIsLoading(false);
-    });
-
-    // Listen for SSO tokens from Hub
-    ssoReceiver.initialize(async (tokenData) => {
-      try {
-        console.log('🔐 useSSOAuth: Received SSO token');
-        
-        // Establish Supabase session (server-side validation)
-        const session = await ssoReceiver.establishSupabaseSession(
-          supabaseClient,
-          tokenData
-        );
-
-        if (session) {
-          setSession(session);
-          setUser(session.user);
-          setError(null);
-        }
-      } catch (err) {
-        console.error('❌ useSSOAuth: Failed to establish session:', err);
-        setError(err as Error);
-        ssoReceiver.clearSSOData();
-      }
-    });
-
-    // Listen for auth state changes
-    const { data: { subscription } } = supabaseClient.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setIsLoading(false);
-      }
-    );
-
-    return () => {
-      subscription.unsubscribe();
-      ssoReceiver.cleanup();
-    };
-  }, [supabaseClient]);
-
-  return { user, session, isLoading, error };
-}
