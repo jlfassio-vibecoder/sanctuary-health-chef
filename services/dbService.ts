@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { Recipe, RecipeSection, UserProfile, AuditItem, Ingredient, ShoppingListItem, Location, InventoryItem } from '../types';
-import { DEFAULT_UNITS } from '../constants/defaults';
+import { DEFAULT_UNITS, DEFAULT_PROFILE_VALUES } from '../constants/defaults';
 
 // Robust helper to find environment variables
 const getEnvVar = (key: string): string | undefined => {
@@ -197,34 +197,12 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
             }
             
             // Return defaults - app continues to work
-            return {
-                age: 30,
-                gender: 'Other',
-                weight: 170,
-                height: 70,
-                units: DEFAULT_UNITS,
-                goals: [],
-                medicalConditions: [],
-                injuries: [],
-                preferences: [],
-                fitnessLevel: 'Intermediate'
-            };
+            return DEFAULT_PROFILE_VALUES;
         }
 
         if (!data) {
             // No data but no error - return defaults
-            return {
-                age: 30,
-                gender: 'Other',
-                weight: 170,
-                height: 70,
-                units: DEFAULT_UNITS,
-                goals: [],
-                medicalConditions: [],
-                injuries: [],
-                preferences: [],
-                fitnessLevel: 'Intermediate'
-            };
+            return DEFAULT_PROFILE_VALUES;
         }
 
         // Extract fitness_goals and preferred_units from JSONB fields
