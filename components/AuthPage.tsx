@@ -51,7 +51,7 @@ export const AuthPage: React.FC = () => {
             <div className="bg-lime-500 w-16 h-16 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-lime-900/50 mb-4 transform rotate-3 hover:rotate-6 transition-transform">
                 <ChefHat className="text-slate-900 w-10 h-10" />
             </div>
-            <h1 className="text-3xl font-bold text-white tracking-tight">FitCopilot <span className="text-lime-400">Chef</span></h1>
+            <h1 className="text-3xl font-bold text-white tracking-tight">Fit<span className="text-lime-400">copilot</span> Chef</h1>
             <p className="text-slate-400 mt-2">Your AI-powered personal culinary nutritionist.</p>
         </div>
 
