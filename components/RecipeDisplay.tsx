@@ -57,18 +57,9 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
     // Explicitly set image from plan
     if (plan.imageUrl) {
       setDishImage(plan.imageUrl);
-      console.log('[RecipeDisplay] Image URL loaded from plan:', plan.imageUrl);
     } else {
       setDishImage(null);
-      console.log('[RecipeDisplay] No image URL in plan');
     }
-    console.log('[RecipeDisplay] Recipe loaded:', {
-      title: plan.title,
-      description: plan.description,
-      imageUrl: plan.imageUrl,
-      sectionsCount: plan.sections?.length,
-      overviewSection: plan.sections?.find(s => s.type === 'Overview')
-    });
   }, [plan]);
 
   useEffect(() => {
@@ -140,16 +131,6 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
           };
 
           const { prep, cook, serves } = parseOverviewItems(data.items || []);
-          
-          console.log('[RecipeDisplay] Rendering Overview card:', {
-            hasImage: !!dishImage,
-            imageUrl: dishImage,
-            description: localRecipe.description,
-            title: localRecipe.title,
-            prep,
-            cook,
-            serves
-          });
           
           return (
               <div className="flex flex-col h-full relative">
