@@ -9,7 +9,7 @@ import { AuthPage } from './components/AuthPage';
 import { AccountPage } from './components/AccountPage';
 import { generateRecipe, updateGeminiApiKey, getGeminiApiKey } from './services/geminiService';
 import { verifyDatabaseSchema, getUserProfile, saveUserProfile, supabase } from './services/dbService';
-import { ssoReceiver } from './services/SSOReceiver';
+import { useSchemaBasedSSO, getSSOTokenFromUrl } from './services/SchemaBasedSSO';
 import { UserProfile, DailyContext, TrainerType, Recipe } from './types';
 import { ChefHat, BookOpen, Database, AlertTriangle, Loader2, Settings, X, Copy, User, ShoppingCart, Archive } from 'lucide-react';
 import { DEFAULT_PROFILE_VALUES } from './constants/defaults';
@@ -30,14 +30,19 @@ type View = 'generator' | 'history' | 'active-workout' | 'account' | 'shopping' 
 type DbStatus = 'checking' | 'connected' | 'error';
 
 const App: React.FC = () => {
-  // Standard Supabase Auth State (No SSO)
+  // Standard Supabase Auth State (for non-SSO sessions)
   const [session, setSession] = useState<any>(null);
   const [loadingSession, setLoadingSession] = useState(true);
   
-  // Auth Props - Simple now!
-  const currentUserId = session?.user?.id;
-  const currentUserEmail = session?.user?.email;
-  const isAuthenticated = !!session;
+  // Schema-based SSO (URL-based token exchange)
+  const { user: ssoUser, session: ssoSession, isLoading: ssoLoading, error: ssoError } = useSchemaBasedSSO(supabase);
+  
+  // Combined session/user state (SSO takes precedence)
+  const activeSession = ssoSession || session;
+  const activeUser = ssoUser || activeSession?.user;
+  const currentUserId = activeUser?.id;
+  const currentUserEmail = activeUser?.email;
+  const isAuthenticated = !!activeSession;
 
   const [profile, setProfile] = useState<UserProfile>(INITIAL_PROFILE);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
@@ -83,51 +88,26 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // SSO Integration - Listen for tokens from Hub
+  // Debug: Check for SSO token on app initialization
   useEffect(() => {
-    if (!supabase) return;
-
-    console.log('📦 Chef App: Initializing SSO receiver (server-side validation)...');
-
-    ssoReceiver.initialize(async (tokenData) => {
-      console.log('🔐 Chef App: SSO token received');
-
-      // ✅ CRITICAL: Establish Supabase session (server-side validation)
-      // NO client-side JWT verification - Supabase validates tokens server-side
-      if (tokenData.access_token && tokenData.refresh_token) {
-        console.log('🔑 Chef App: Establishing Supabase session...');
-
-        const { data, error } = await supabase.auth.setSession({
-          access_token: tokenData.access_token,
-          refresh_token: tokenData.refresh_token,
-        });
-
-        if (error) {
-          console.error('❌ Chef App: Failed to set Supabase session:', error);
-          ssoReceiver.clearSSOData();
-          return;
-        }
-
-        console.log('✅ Chef App: Supabase session established!', data.session?.user?.email);
-        // Session will be picked up by the auth state listener above
-      } else {
-        // Missing tokens - cannot establish session
-        console.error('❌ Chef App: SSO token missing required credentials');
-        console.error('   Missing:', {
-          access_token: !tokenData.access_token,
-          refresh_token: !tokenData.refresh_token
-        });
-        
-        // Clear invalid SSO data to prevent repeated failures
-        ssoReceiver.clearSSOData();
-        
-        // User will see AuthPage and can use standalone authentication
-        console.log('ℹ️ Falling back to standalone authentication');
-      }
-    });
-
-    return () => ssoReceiver.cleanup();
+    console.log('🔍 [DEBUG] App.tsx: Initializing, checking for SSO token...');
+    const token = getSSOTokenFromUrl();
+    if (token) {
+      console.log('✅ [DEBUG] App.tsx: SSO token detected in URL on mount');
+    } else {
+      console.log('ℹ️ [DEBUG] App.tsx: No SSO token in URL on mount');
+    }
   }, []);
+
+  // Log authentication state for debugging
+  useEffect(() => {
+    if (ssoError) {
+      console.error('❌ App.tsx: SSO error:', ssoError);
+    }
+    if (ssoSession && ssoUser) {
+      console.log('✅ App.tsx: User authenticated via schema-based SSO:', ssoUser.email);
+    }
+  }, [ssoUser, ssoSession, ssoError]);
 
   // Load User Data
   useEffect(() => {
@@ -318,7 +298,8 @@ create policy "Users manage shopping list" on chef.shopping_list for all using (
     alert("Chef Schema SQL copied! Run this in Supabase SQL Editor.");
   };
 
-  if (loadingSession) {
+  // Show loading if either SSO or standard auth is loading
+  if (loadingSession || ssoLoading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
         <Loader2 className="w-12 h-12 text-lime-500 animate-spin" />
@@ -381,7 +362,7 @@ create policy "Users manage shopping list" on chef.shopping_list for all using (
           </div>
         )}
 
-        {currentView === 'account' && <AccountPage userEmail={currentUserEmail} user={session?.user} profile={profile} onSaveProfile={handleProfileSave} />}
+        {currentView === 'account' && <AccountPage userEmail={currentUserEmail} user={activeUser} profile={profile} onSaveProfile={handleProfileSave} />}
         {currentView === 'generator' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <ProfileSetup profile={profile} onSave={handleProfileSave} />
