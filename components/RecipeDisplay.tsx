@@ -35,7 +35,13 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
   const displaySteps: DisplayStep[] = [];
   
   if (localRecipe.sections) {
-      localRecipe.sections.forEach((section, idx) => {
+      // Sort sections: Overview first, then Ingredients, then Instructions
+      const sortedSections = [...localRecipe.sections].sort((a, b) => {
+          const order: Record<string, number> = { 'Overview': 0, 'Ingredients': 1, 'Instructions': 2 };
+          return (order[a.type] ?? 99) - (order[b.type] ?? 99);
+      });
+      
+      sortedSections.forEach((section, idx) => {
           displaySteps.push({
               type: section.type,
               data: section,
@@ -48,7 +54,21 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
     setLocalRecipe(plan);
     setHasSaved(!!plan.id);
     setCurrentStepIndex(0);
-    setDishImage(plan.imageUrl || null);
+    // Explicitly set image from plan
+    if (plan.imageUrl) {
+      setDishImage(plan.imageUrl);
+      console.log('[RecipeDisplay] Image URL loaded from plan:', plan.imageUrl);
+    } else {
+      setDishImage(null);
+      console.log('[RecipeDisplay] No image URL in plan');
+    }
+    console.log('[RecipeDisplay] Recipe loaded:', {
+      title: plan.title,
+      description: plan.description,
+      imageUrl: plan.imageUrl,
+      sectionsCount: plan.sections?.length,
+      overviewSection: plan.sections?.find(s => s.type === 'Overview')
+    });
   }, [plan]);
 
   useEffect(() => {
@@ -111,6 +131,26 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
       const { data } = step;
 
       if (step.type === 'Overview') {
+          // Parse Overview section items to extract Prep, Cook, and Serves
+          const parseOverviewItems = (items: string[]) => {
+              const prep = items.find(item => item.toLowerCase().includes('prep'))?.split(':')[1]?.trim() || '';
+              const cook = items.find(item => item.toLowerCase().includes('cook'))?.split(':')[1]?.trim() || '';
+              const serves = items.find(item => item.toLowerCase().includes('serve'))?.split(':')[1]?.trim() || '';
+              return { prep, cook, serves };
+          };
+
+          const { prep, cook, serves } = parseOverviewItems(data.items || []);
+          
+          console.log('[RecipeDisplay] Rendering Overview card:', {
+            hasImage: !!dishImage,
+            imageUrl: dishImage,
+            description: localRecipe.description,
+            title: localRecipe.title,
+            prep,
+            cook,
+            serves
+          });
+          
           return (
               <div className="flex flex-col h-full relative">
                   <div className="relative h-48 md:h-64 w-full bg-slate-800 shrink-0">
@@ -147,21 +187,44 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                   </div>
 
                   <div className="p-6 flex flex-col items-center justify-center flex-grow text-center">
-                      <div className="text-slate-400 mb-8 max-w-md text-sm md:text-base">{localRecipe.description}</div>
+                      <div className="text-slate-400 mb-8 max-w-md text-sm md:text-base">{localRecipe.description || ''}</div>
                       
                       <div className="grid grid-cols-2 gap-4 w-full max-w-md">
-                          <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                              <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Total Time</span>
-                              <span className="text-xl md:text-2xl font-bold text-white">{localRecipe.totalTime} mins</span>
-                          </div>
-                          <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                              <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Calories</span>
-                              <span className="text-xl md:text-2xl font-bold text-white">{localRecipe.calories}</span>
-                          </div>
-                          <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 col-span-2 flex justify-between items-center px-6">
-                               <span className="text-slate-500 text-xs font-bold uppercase">Difficulty</span>
-                               <span className="text-xl font-bold text-lime-400">{localRecipe.difficulty}</span>
-                          </div>
+                          {prep && (
+                              <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                                  <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Prep</span>
+                                  <span className="text-xl md:text-2xl font-bold text-white">{prep}</span>
+                              </div>
+                          )}
+                          {cook && (
+                              <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                                  <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Cook</span>
+                                  <span className="text-xl md:text-2xl font-bold text-white">{cook}</span>
+                              </div>
+                          )}
+                          {serves && (
+                              <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 col-span-2 flex justify-between items-center px-6">
+                                  <span className="text-slate-500 text-xs font-bold uppercase">Serves</span>
+                                  <span className="text-xl font-bold text-lime-400">{serves}</span>
+                              </div>
+                          )}
+                          {/* Fallback to original metrics if Overview items are not available */}
+                          {!prep && !cook && !serves && (
+                              <>
+                                  <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                                      <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Total Time</span>
+                                      <span className="text-xl md:text-2xl font-bold text-white">{localRecipe.totalTime} mins</span>
+                                  </div>
+                                  <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                                      <span className="block text-slate-500 text-xs font-bold uppercase mb-1">Calories</span>
+                                      <span className="text-xl md:text-2xl font-bold text-white">{localRecipe.calories}</span>
+                                  </div>
+                                  <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 col-span-2 flex justify-between items-center px-6">
+                                      <span className="text-slate-500 text-xs font-bold uppercase">Difficulty</span>
+                                      <span className="text-xl font-bold text-lime-400">{localRecipe.difficulty}</span>
+                                  </div>
+                              </>
+                          )}
                       </div>
                   </div>
               </div>
