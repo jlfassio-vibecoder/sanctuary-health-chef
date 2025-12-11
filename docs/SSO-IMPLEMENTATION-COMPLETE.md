@@ -1,7 +1,13 @@
 # ✅ Secure SSO Authentication Implementation Complete
 
+> **⚠️ DEPRECATED: This document describes the legacy postMessage-based SSO implementation.**
+> 
+> **Current Status:** The Chef app has been migrated to schema-based SSO (URL-based token exchange).
+> 
+> **See:** `SSO-MIGRATION-COMPLETE.md` and `SSO-MIGRATION-VERIFICATION.md` for current implementation details.
+
 **Date:** December 7, 2025  
-**Status:** ✅ PRODUCTION READY (Secure Server-Side Validation)
+**Status:** ⚠️ LEGACY - Replaced by Schema-Based SSO
 
 ---
 
