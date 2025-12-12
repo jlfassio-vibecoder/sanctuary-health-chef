@@ -124,9 +124,20 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
       if (step.type === 'Overview') {
           // Parse Overview section items to extract Prep, Cook, and Serves
           const parseOverviewItems = (items: string[]) => {
-              const prep = items.find(item => item.toLowerCase().includes('prep'))?.split(':')[1]?.trim() || '';
-              const cook = items.find(item => item.toLowerCase().includes('cook'))?.split(':')[1]?.trim() || '';
-              const serves = items.find(item => item.toLowerCase().includes('serve'))?.split(':')[1]?.trim() || '';
+              const extractValue = (label: string, items: string[]) => {
+                  const item = items.find(i => i.toLowerCase().includes(label));
+                  if (item && item.includes(':')) {
+                      const parts = item.split(':');
+                      if (parts.length >= 2) {
+                          return parts.slice(1).join(':').trim();
+                      }
+                  }
+                  return '';
+              };
+              
+              const prep = extractValue('prep', items);
+              const cook = extractValue('cook', items);
+              const serves = extractValue('serve', items);
               return { prep, cook, serves };
           };
 
