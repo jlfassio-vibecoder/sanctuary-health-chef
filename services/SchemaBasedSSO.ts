@@ -376,8 +376,42 @@ export function useSchemaBasedSSO(
       console.log('🔍 [DEBUG] initAuth: Starting authentication check...');
 
       try {
-        // First, check if we already have a session
-        console.log('🔍 [DEBUG] initAuth: Checking for existing session...');
+        // Use the token we captured on mount (not from current URL, which may have been stripped)
+        const token = ssoTokenRef.current;
+        
+        // If we have an SSO token, process it FIRST (even if there's an existing session)
+        // This ensures we use the fresh session from the Hub
+        if (token) {
+          console.log('✅ [DEBUG] initAuth: SSO token found (from ref), processing...');
+          console.log('🔍 [DEBUG] initAuth: Token value:', token.substring(0, 20) + '...');
+
+          // Mark as processed BEFORE exchange (prevents race conditions)
+          tokenProcessedRef.current = true;
+          ssoTokenRef.current = null; // Clear the token ref after marking as processed
+          console.log('🔍 [DEBUG] initAuth: Marked token as processed, starting exchange...');
+
+          // Exchange token for session (this will replace any existing session)
+          await exchangeSSOTokenAndSetSession(token, supabaseClient);
+          console.log('✅ [DEBUG] initAuth: Token exchange completed, checking session...');
+
+          const {
+            data: { session: newSession },
+          } = await supabaseClient.auth.getSession();
+
+          if (newSession) {
+            console.log('✅ [DEBUG] initAuth: Session established successfully via SSO');
+            setSession(newSession);
+            setUser(newSession.user);
+            setError(null);
+            setIsLoading(false);
+            return;
+          } else {
+            throw new Error('Failed to establish session after SSO exchange');
+          }
+        }
+
+        // No SSO token - check for existing session
+        console.log('🔍 [DEBUG] initAuth: No SSO token, checking for existing session...');
         const {
           data: { session: existingSession },
         } = await supabaseClient.auth.getSession();
@@ -391,40 +425,8 @@ export function useSchemaBasedSSO(
           return;
         }
 
-        console.log('🔍 [DEBUG] initAuth: No existing session, checking for SSO token...');
+        console.log('ℹ️ [DEBUG] initAuth: No SSO token and no existing session, user needs to authenticate via Hub');
 
-        // Use the token we captured on mount (not from current URL, which may have been stripped)
-        const token = ssoTokenRef.current;
-        if (!token) {
-          console.log('ℹ️ [DEBUG] initAuth: No SSO token available, user needs to authenticate via Hub');
-          setIsLoading(false);
-          return; // No token, user needs to authenticate via Hub
-        }
-
-        console.log('✅ [DEBUG] initAuth: SSO token found (from ref), processing...');
-        console.log('🔍 [DEBUG] initAuth: Token value:', token.substring(0, 20) + '...');
-
-        // Mark as processed BEFORE exchange (prevents race conditions)
-        tokenProcessedRef.current = true;
-        ssoTokenRef.current = null; // Clear the token ref after marking as processed
-        console.log('🔍 [DEBUG] initAuth: Marked token as processed, starting exchange...');
-
-        // Exchange token for session
-        await exchangeSSOTokenAndSetSession(token, supabaseClient);
-        console.log('✅ [DEBUG] initAuth: Token exchange completed, checking session...');
-
-        const {
-          data: { session: newSession },
-        } = await supabaseClient.auth.getSession();
-
-        if (newSession) {
-          console.log('✅ [DEBUG] initAuth: Session established successfully');
-          setSession(newSession);
-          setUser(newSession.user);
-          setError(null);
-        } else {
-          throw new Error('Failed to establish session');
-        }
       } catch (err) {
         console.error('❌ SchemaBasedSSO: Schema-based SSO failed:', err);
         setError(err instanceof Error ? err : new Error('Authentication failed'));
