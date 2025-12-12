@@ -403,7 +403,6 @@ export function useSchemaBasedSSO(
             setSession(newSession);
             setUser(newSession.user);
             setError(null);
-            setIsLoading(false);
             return;
           } else {
             throw new Error('Failed to establish session after SSO exchange');
@@ -420,7 +419,6 @@ export function useSchemaBasedSSO(
           console.log('✅ [DEBUG] initAuth: Found existing session, using it');
           setSession(existingSession);
           setUser(existingSession.user);
-          setIsLoading(false);
           tokenProcessedRef.current = true; // Mark as processed
           return;
         }
