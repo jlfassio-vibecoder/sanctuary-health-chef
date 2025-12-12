@@ -110,6 +110,16 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
                 onClick={() => onLoadWorkout(recipe)}
                 className="bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-lime-500/50 rounded-xl p-5 cursor-pointer transition-all hover:shadow-lg hover:shadow-lime-900/10 group relative"
             >
+                {recipe.imageUrl && (
+                    <div className="relative h-32 md:h-40 w-full mb-4 rounded-lg overflow-hidden -mx-5 -mt-5">
+                        <img 
+                            src={recipe.imageUrl} 
+                            alt={recipe.title}
+                            className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent"></div>
+                    </div>
+                )}
                 <div className="flex flex-col md:flex-row justify-between md:items-start gap-4">
                     <div className="flex-1 w-full">
                         <div className="flex flex-wrap items-center gap-2 mb-2">

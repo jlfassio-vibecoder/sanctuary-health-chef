@@ -437,6 +437,7 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
       const typeLower = section.type.toLowerCase();
       if (typeLower.includes('instruction') || typeLower.includes('step')) sectionType = 'instructions';
       else if (typeLower.includes('ingredient')) sectionType = 'notes'; // Store ingredients as notes
+      else if (typeLower.includes('overview') || typeLower.includes('info')) sectionType = 'tips'; // Store Overview sections as tips
       else if (typeLower.includes('tip')) sectionType = 'tips';
       else if (typeLower.includes('nutrition')) sectionType = 'nutrition';
       
