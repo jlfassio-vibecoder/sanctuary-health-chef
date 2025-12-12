@@ -19,6 +19,14 @@ interface DisplayStep {
   index: number;
 }
 
+// Section display order constants
+const SECTION_ORDER = {
+  OVERVIEW: 0,
+  INGREDIENTS: 1,
+  INSTRUCTIONS: 2,
+  UNKNOWN: 99, // Fallback for unknown section types
+} as const;
+
 export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
   const [localRecipe, setLocalRecipe] = useState<Recipe>(plan);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
@@ -37,8 +45,12 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
   if (localRecipe.sections) {
       // Sort sections: Overview first, then Ingredients, then Instructions
       const sortedSections = [...localRecipe.sections].sort((a, b) => {
-          const order: Record<string, number> = { 'Overview': 0, 'Ingredients': 1, 'Instructions': 2 };
-          return (order[a.type] ?? 99) - (order[b.type] ?? 99);
+          const order: Record<string, number> = { 
+              'Overview': SECTION_ORDER.OVERVIEW, 
+              'Ingredients': SECTION_ORDER.INGREDIENTS, 
+              'Instructions': SECTION_ORDER.INSTRUCTIONS 
+          };
+          return (order[a.type] ?? SECTION_ORDER.UNKNOWN) - (order[b.type] ?? SECTION_ORDER.UNKNOWN);
       });
       
       sortedSections.forEach((section, idx) => {
