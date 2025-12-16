@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Recipe, RecipeSection, UnitSystem, Ingredient } from '../types';
 import { saveRecipeToDb } from '../services/dbService';
 import { generateDishImage } from '../services/geminiService';
@@ -35,6 +35,7 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
   
   const [dishImage, setDishImage] = useState<string | null>(localRecipe.imageUrl || null);
   const [isImageLoading, setIsImageLoading] = useState(false);
+  const recipeImagesGeneratedRef = useRef<Set<string>>(new Set());
 
   // Audit State
   const [showAudit, setShowAudit] = useState(false);
@@ -66,28 +67,46 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
     setLocalRecipe(plan);
     setHasSaved(!!plan.id);
     setCurrentStepIndex(0);
+
     // Explicitly set image from plan
-    if (plan.imageUrl) {
-      setDishImage(plan.imageUrl);
+    setDishImage(plan.imageUrl || null);
+
+    // Track whether this recipe already has an image to avoid regenerating
+    if (plan.id) {
+      const recipeKey = plan.id;
+      if (plan.imageUrl) {
+        recipeImagesGeneratedRef.current.add(recipeKey);
+        console.log(`✅ [RecipeDisplay] Recipe ${recipeKey} already has image - skipping generation`);
+      } else {
+        recipeImagesGeneratedRef.current.delete(recipeKey);
+        console.log(`🔄 [RecipeDisplay] Recipe ${recipeKey} needs image - will generate`);
+      }
     } else {
-      setDishImage(null);
+      // New recipe (no ID) - allow generation
+      recipeImagesGeneratedRef.current.clear();
     }
   }, [plan]);
 
   useEffect(() => {
     const fetchImage = async () => {
+      const recipeKey = localRecipe.id || `recipe-${localRecipe.title}`;
+
+      // Skip generation if we've already processed this recipe
+      if (recipeImagesGeneratedRef.current.has(recipeKey)) return;
+
       if (!dishImage && !isImageLoading && localRecipe.title) {
         setIsImageLoading(true);
         const imgUrl = await generateDishImage(localRecipe.title, localRecipe.description);
         if (imgUrl) {
            setDishImage(imgUrl);
            setLocalRecipe(prev => ({ ...prev, imageUrl: imgUrl }));
+           recipeImagesGeneratedRef.current.add(recipeKey);
         }
         setIsImageLoading(false);
       }
     };
     fetchImage();
-  }, [localRecipe.title]);
+  }, [localRecipe.title, localRecipe.description, dishImage, isImageLoading, localRecipe.id]);
 
   const handleNext = useCallback(() => {
     if (currentStepIndex < displaySteps.length - 1) setCurrentStepIndex(prev => prev + 1);
