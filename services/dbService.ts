@@ -538,7 +538,8 @@ export const getSavedRecipes = async (userId: string, includeImages: boolean = f
                     console.warn('Failed to parse recipe content JSON:', e);
                 }
                 
-                // Map section_type back to original type naming
+                // Map section_type back to original type naming.
+                // We store Ingredients as 'notes' and Overview as 'tips' to fit DB constraints.
                 let type: 'Overview' | 'Ingredients' | 'Instructions' = 'Instructions';
                 if (c.section_type === 'instructions') type = 'Instructions';
                 else if (c.section_type === 'notes') type = 'Ingredients'; // We stored ingredients as notes
@@ -628,6 +629,8 @@ export const getRecipeById = async (recipeId: string, includeImages: boolean = t
                 console.warn('Failed to parse recipe content JSON:', e);
             }
 
+            // Map section_type back to original type naming.
+            // We store Ingredients as 'notes' and Overview as 'tips' to fit DB constraints.
             let type: 'Overview' | 'Ingredients' | 'Instructions' = 'Instructions';
             if (c.section_type === 'instructions') type = 'Instructions';
             else if (c.section_type === 'notes') type = 'Ingredients';

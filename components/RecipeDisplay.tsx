@@ -36,6 +36,7 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
   const [dishImage, setDishImage] = useState<string | null>(localRecipe.imageUrl || null);
   const [isImageLoading, setIsImageLoading] = useState(false);
   const recipeImagesGeneratedRef = useRef<Set<string>>(new Set());
+  const newRecipeKeyRef = useRef<string | null>(null); // unique key for unsaved recipes
 
   // Audit State
   const [showAudit, setShowAudit] = useState(false);
@@ -74,6 +75,7 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
     // Track whether this recipe already has an image to avoid regenerating
     if (plan.id) {
       const recipeKey = plan.id;
+      newRecipeKeyRef.current = null; // clear any generated key when persisted ID exists
       if (plan.imageUrl) {
         recipeImagesGeneratedRef.current.add(recipeKey);
         console.log(`✅ [RecipeDisplay] Recipe ${recipeKey} already has image - skipping generation`);
@@ -82,14 +84,20 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
         console.log(`🔄 [RecipeDisplay] Recipe ${recipeKey} needs image - will generate`);
       }
     } else {
-      // New recipe (no ID) - allow generation
+      // New recipe (no ID) - allow generation and ensure a unique key
+      if (!newRecipeKeyRef.current) {
+        newRecipeKeyRef.current =
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `new-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
       recipeImagesGeneratedRef.current.clear();
     }
   }, [plan]);
 
   useEffect(() => {
     const fetchImage = async () => {
-      const recipeKey = localRecipe.id || `recipe-${localRecipe.title}`;
+      const recipeKey = localRecipe.id || newRecipeKeyRef.current!;
 
       // Skip generation if we've already processed this recipe
       if (recipeImagesGeneratedRef.current.has(recipeKey)) return;
