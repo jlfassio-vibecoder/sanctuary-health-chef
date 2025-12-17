@@ -398,6 +398,8 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
       difficulty_level: normalizeDifficulty(recipe.difficulty), // Database: 'difficulty_level' (easy|medium|hard only)
       dietary_tags: recipe.dietaryTags || [], // Database: 'dietary_tags' (JSONB)
       allergens: recipe.allergens || [], // Database: 'allergens' (JSONB)
+      chef_note: recipe.chefNote || null, // Database: 'chef_note'
+      chef_persona: recipe.chefPersona || null, // Database: 'chef_persona'
       image_url: recipe.imageUrl || null, // Database: 'image_url'
       is_favorite: recipe.isFavorite || false, // Database: 'is_favorite'
       is_public: recipe.isPublic || false, // Database: 'is_public'
@@ -489,15 +491,23 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
 
 /**
  * Fetches all recipes for a user from 'recipes' table.
+ * @param userId - The user ID to fetch recipes for
+ * @param includeImages - If false, excludes image_url column to speed up loading (default: false)
  */
-export const getSavedRecipes = async (userId: string): Promise<Recipe[]> => {
+export const getSavedRecipes = async (userId: string, includeImages: boolean = false): Promise<Recipe[]> => {
     if (!supabase) return [];
 
     try {
+        // When includeImages=false, exclude image_url to avoid transferring large base64 strings
+        // This significantly speeds up history loading and prevents database timeouts
+        const selectColumns = includeImages 
+            ? '*' 
+            : 'id, user_id, name, description, meal_type, cuisine_type, servings, prep_time_minutes, cook_time_minutes, difficulty_level, dietary_tags, allergens, chef_note, chef_persona, is_favorite, is_public, created_at, updated_at';
+        
         const { data: recipesData, error: recipesError } = await supabase
             .schema('chef')
             .from('recipes')
-            .select('*')
+            .select(selectColumns)
             .eq('user_id', userId)
             .order('created_at', { ascending: false });
 
@@ -528,7 +538,8 @@ export const getSavedRecipes = async (userId: string): Promise<Recipe[]> => {
                     console.warn('Failed to parse recipe content JSON:', e);
                 }
                 
-                // Map section_type back to original type naming
+                // Map section_type back to original type naming.
+                // We store Ingredients as 'notes' and Overview as 'tips' to fit DB constraints.
                 let type: 'Overview' | 'Ingredients' | 'Instructions' = 'Instructions';
                 if (c.section_type === 'instructions') type = 'Instructions';
                 else if (c.section_type === 'notes') type = 'Ingredients'; // We stored ingredients as notes
@@ -549,7 +560,7 @@ export const getSavedRecipes = async (userId: string): Promise<Recipe[]> => {
                 title: r.name || '', // Database: 'name'
                 description: r.description || '', // Database: 'description'
                 difficulty: r.difficulty_level || '', // Database: 'difficulty_level'
-                chefNote: '', // Not stored in database
+                chefNote: r.chef_note || '',
                 totalTime: (r.prep_time_minutes || 0) + (r.cook_time_minutes || 0),
                 prepTime: r.prep_time_minutes || 0,
                 cookTime: r.cook_time_minutes || 0,
@@ -562,8 +573,8 @@ export const getSavedRecipes = async (userId: string): Promise<Recipe[]> => {
                 servings: r.servings || 1,
                 dietaryTags: r.dietary_tags || [], // Database: JSONB array
                 allergens: r.allergens || [], // Database: JSONB array
-                chefPersona: '', // Not in database
-                imageUrl: r.image_url || '',
+                chefPersona: r.chef_persona || '',
+                imageUrl: r.image_url || '', // Will be undefined if includeImages=false, which is fine - images load on demand
                 isFavorite: r.is_favorite || false,
                 isPublic: r.is_public || false,
                 createdAt: r.created_at,
@@ -576,6 +587,92 @@ export const getSavedRecipes = async (userId: string): Promise<Recipe[]> => {
     } catch (error: any) {
         console.error("Error fetching recipes:", error);
         return [];
+    }
+};
+
+/**
+ * Fetch a single recipe by ID.
+ * @param recipeId - The recipe ID to fetch
+ * @param includeImages - If false, excludes image_url column to speed up loading (default: true)
+ */
+export const getRecipeById = async (recipeId: string, includeImages: boolean = true): Promise<Recipe | null> => {
+    if (!supabase) return null;
+
+    try {
+        const selectColumns = includeImages
+            ? '*'
+            : 'id, user_id, name, description, meal_type, cuisine_type, servings, prep_time_minutes, cook_time_minutes, difficulty_level, dietary_tags, allergens, chef_note, chef_persona, is_favorite, is_public, created_at, updated_at';
+
+        const { data: recipeRow, error: recipeError } = await supabase
+            .schema('chef')
+            .from('recipes')
+            .select(selectColumns)
+            .eq('id', recipeId)
+            .single();
+
+        if (recipeError || !recipeRow) return null;
+
+        const { data: contentData, error: contentError } = await supabase
+            .schema('chef')
+            .from('recipe_content')
+            .select('*')
+            .eq('recipe_id', recipeId)
+            .order('order_index', { ascending: true });
+
+        if (contentError) throw contentError;
+
+        const sections: RecipeSection[] = (contentData || []).map((c: any) => {
+            let parsedContent: any = {};
+            try {
+                parsedContent = JSON.parse(c.content || '{}');
+            } catch (e) {
+                console.warn('Failed to parse recipe content JSON:', e);
+            }
+
+            // Map section_type back to original type naming.
+            // We store Ingredients as 'notes' and Overview as 'tips' to fit DB constraints.
+            let type: 'Overview' | 'Ingredients' | 'Instructions' = 'Instructions';
+            if (c.section_type === 'instructions') type = 'Instructions';
+            else if (c.section_type === 'notes') type = 'Ingredients';
+            else if (c.section_type === 'tips') type = 'Overview';
+
+            return {
+                type,
+                title: parsedContent.title || '',
+                items: parsedContent.items || [],
+                ingredients: parsedContent.ingredients || [],
+                metadata: parsedContent.metadata || {}
+            };
+        });
+
+        return {
+            id: recipeRow.id,
+            title: recipeRow.name || '',
+            description: recipeRow.description || '',
+            difficulty: recipeRow.difficulty_level || '',
+            chefNote: recipeRow.chef_note || '',
+            chefPersona: recipeRow.chef_persona || '',
+            totalTime: (recipeRow.prep_time_minutes || 0) + (recipeRow.cook_time_minutes || 0),
+            prepTime: recipeRow.prep_time_minutes || 0,
+            cookTime: recipeRow.cook_time_minutes || 0,
+            calories: 0,
+            protein: 0,
+            carbs: 0,
+            fat: 0,
+            mealType: recipeRow.meal_type || '',
+            cuisine: recipeRow.cuisine_type || '',
+            servings: recipeRow.servings || 1,
+            dietaryTags: recipeRow.dietary_tags || [],
+            allergens: recipeRow.allergens || [],
+            imageUrl: includeImages ? (recipeRow.image_url || '') : '',
+            isFavorite: recipeRow.is_favorite || false,
+            isPublic: recipeRow.is_public || false,
+            createdAt: recipeRow.created_at,
+            sections
+        };
+    } catch (error) {
+        console.error('Error fetching recipe by id:', error);
+        return null;
     }
 };
 

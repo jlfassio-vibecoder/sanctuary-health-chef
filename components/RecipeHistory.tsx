@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
-import { Recipe } from '../types';
-import { getSavedRecipes, deleteRecipe } from '../services/dbService';
+import { Recipe, TrainerType } from '../types';
+import { getSavedRecipes, getRecipeById, deleteRecipe } from '../services/dbService';
 import { Calendar, Clock, Flame, BookOpen, Trash2, ArrowRight, AlertCircle, Loader2, Utensils } from 'lucide-react';
 
 interface Props {
@@ -15,13 +15,25 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
   const [filterCuisine, setFilterCuisine] = useState<string>('All');
   const [filterChef, setFilterChef] = useState<string>('All');
 
+  // Static chef persona options (keeps filter stable even if only one chef is present in data)
+  const CHEF_PERSONA_OPTIONS: string[] = [
+    TrainerType.FUNCTIONAL,
+    TrainerType.HYPERTROPHY,
+    TrainerType.POWERLIFTING,
+    TrainerType.YOGA,
+    TrainerType.HIIT,
+    TrainerType.REHAB,
+  ];
+
   useEffect(() => {
     loadData();
   }, [userId]);
 
   const loadData = async () => {
     setLoading(true);
-    const data = await getSavedRecipes(userId);
+    // Exclude images when loading history to speed up query and prevent timeouts
+    // Images will be loaded on-demand when viewing individual recipes
+    const data = await getSavedRecipes(userId, false);
     setRecipes(data);
     setLoading(false);
   };
@@ -36,7 +48,6 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
     }
   };
 
-  const chefsFound = Array.from(new Set(recipes.map(r => r.chefPersona || 'Other'))).sort();
   const cuisinesFound = Array.from(new Set(recipes.map(r => r.cuisine || 'General'))).sort();
   
   const filteredRecipes = recipes.filter(r => {
@@ -81,7 +92,7 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
                     className="bg-transparent text-white text-sm outline-none cursor-pointer pr-4"
                 >
                     <option value="All">All</option>
-                    {chefsFound.map(c => (
+                    {CHEF_PERSONA_OPTIONS.map(c => (
                         <option key={c} value={c}>{c}</option>
                     ))}
                 </select>
@@ -107,7 +118,15 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
         {filteredRecipes.map((recipe) => (
             <div 
                 key={recipe.id} 
-                onClick={() => onLoadWorkout(recipe)}
+                onClick={async () => {
+                    // If the recipe already has an image, use it. Otherwise fetch with images.
+                    if (recipe.imageUrl) {
+                        onLoadWorkout(recipe);
+                        return;
+                    }
+                    const fullRecipe = await getRecipeById(recipe.id!, true);
+                    onLoadWorkout(fullRecipe || recipe);
+                }}
                 className="bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-lime-500/50 rounded-xl p-5 cursor-pointer transition-all hover:shadow-lg hover:shadow-lime-900/10 group relative"
             >
                 {recipe.imageUrl && (
