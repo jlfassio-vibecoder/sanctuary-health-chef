@@ -1,7 +1,7 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Recipe, TrainerType } from '../types';
-import { getSavedRecipes, getRecipeById, deleteRecipe } from '../services/dbService';
+import { getSavedRecipes, getRecipeById, deleteRecipe, getRecipeImageUrls } from '../services/dbService';
 import { Calendar, Clock, Flame, BookOpen, Trash2, ArrowRight, AlertCircle, Loader2, Utensils } from 'lucide-react';
 
 interface Props {
@@ -9,11 +9,18 @@ interface Props {
   userId: string;
 }
 
+// Image cache shared across component instances
+const imageCache = new Map<string, string>();
+const loadingRecipes = new Set<string>();
+
 export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCuisine, setFilterCuisine] = useState<string>('All');
   const [filterChef, setFilterChef] = useState<string>('All');
+  const [loadedImages, setLoadedImages] = useState<Map<string, string>>(new Map());
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Static chef persona options (keeps filter stable even if only one chef is present in data)
   const CHEF_PERSONA_OPTIONS: string[] = [
@@ -29,14 +36,103 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
     loadData();
   }, [userId]);
 
+  const loadImageForRecipe = useCallback(async (recipeId: string) => {
+    // Skip if already cached or currently loading
+    if (imageCache.has(recipeId) || loadingRecipes.has(recipeId)) {
+      if (imageCache.has(recipeId)) {
+        setLoadedImages(prev => new Map(prev).set(recipeId, imageCache.get(recipeId)!));
+      }
+      return;
+    }
+
+    loadingRecipes.add(recipeId);
+    try {
+      const imageMap = await getRecipeImageUrls([recipeId]);
+      const imageUrl = imageMap.get(recipeId);
+      
+      if (imageUrl) {
+        // Cache the image
+        imageCache.set(recipeId, imageUrl);
+        setLoadedImages(prev => new Map(prev).set(recipeId, imageUrl));
+        
+        // Update recipe state
+        setRecipes(prevRecipes => 
+          prevRecipes.map(recipe => 
+            recipe.id === recipeId ? { ...recipe, imageUrl } : recipe
+          )
+        );
+      }
+    } catch (error) {
+      console.error(`Error loading image for recipe ${recipeId}:`, error);
+    } finally {
+      loadingRecipes.delete(recipeId);
+    }
+  }, []);
+
   const loadData = async () => {
     setLoading(true);
     // Exclude images when loading history to speed up query and prevent timeouts
-    // Images will be loaded on-demand when viewing individual recipes
+    // Images will be loaded lazily as cards come into view
     const data = await getSavedRecipes(userId, false);
-    setRecipes(data);
+    
+    // Check cache for any images we already have
+    const cachedImages = new Map<string, string>();
+    data.forEach(recipe => {
+      if (recipe.id && imageCache.has(recipe.id)) {
+        cachedImages.set(recipe.id, imageCache.get(recipe.id)!);
+      }
+    });
+    
+    // Initialize recipes with cached images
+    const recipesWithCachedImages = data.map(recipe => ({
+      ...recipe,
+      imageUrl: (recipe.id && cachedImages.get(recipe.id)) || recipe.imageUrl || ''
+    }));
+    
+    setRecipes(recipesWithCachedImages);
+    setLoadedImages(cachedImages);
     setLoading(false);
   };
+
+  // Set up Intersection Observer for lazy loading
+  useEffect(() => {
+    if (loading) return;
+
+    // Clean up previous observer
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+
+    // Create new Intersection Observer
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const recipeId = entry.target.getAttribute('data-recipe-id');
+            if (recipeId && !loadedImages.has(recipeId) && !loadingRecipes.has(recipeId)) {
+              loadImageForRecipe(recipeId);
+            }
+          }
+        });
+      },
+      {
+        rootMargin: '100px' // Start loading 100px before card enters viewport
+      }
+    );
+
+    // Observe all recipe cards
+    cardRefs.current.forEach((cardElement) => {
+      if (cardElement && observerRef.current) {
+        observerRef.current.observe(cardElement);
+      }
+    });
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [recipes, loading, loadedImages, loadImageForRecipe]);
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -115,44 +211,80 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
       </div>
 
       <div className="grid grid-cols-1 gap-4">
-        {filteredRecipes.map((recipe) => (
+        {filteredRecipes.map((recipe) => {
+          const recipeId = recipe.id!;
+          const displayImageUrl = loadedImages.get(recipeId) || recipe.imageUrl || '';
+          
+          return (
             <div 
-                key={recipe.id} 
+                key={recipeId}
+                ref={(el) => {
+                  if (el) {
+                    cardRefs.current.set(recipeId, el);
+                  } else {
+                    cardRefs.current.delete(recipeId);
+                  }
+                }}
+                data-recipe-id={recipeId}
                 onClick={async () => {
                     // If the recipe already has an image, use it. Otherwise fetch with images.
-                    if (recipe.imageUrl) {
+                    if (displayImageUrl) {
                         onLoadWorkout(recipe);
                         return;
                     }
-                    const fullRecipe = await getRecipeById(recipe.id!, true);
+                    // Ensure we have the full recipe with image before navigating
+                    if (!displayImageUrl) {
+                      await loadImageForRecipe(recipeId);
+                    }
+                    const fullRecipe = await getRecipeById(recipeId, true);
                     onLoadWorkout(fullRecipe || recipe);
                 }}
                 className="bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-lime-500/50 rounded-xl p-5 cursor-pointer transition-all hover:shadow-lg hover:shadow-lime-900/10 group relative"
             >
-                {recipe.imageUrl && (
-                    <div className="relative h-32 md:h-40 w-full mb-4 rounded-lg overflow-hidden -mx-5 -mt-5">
+                {displayImageUrl && (
+                    <div className="relative h-48 md:h-64 w-full bg-slate-800 shrink-0 -mx-5 -mt-5 mb-0">
                         <img 
                             src={recipe.imageUrl} 
                             alt={recipe.title}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover animate-in fade-in duration-1000"
                         />
-                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent"></div>
+                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-90"></div>
+                        <div className="absolute bottom-4 left-6 right-6">
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className="bg-lime-500 text-slate-900 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded">
+                                    {recipe.chefPersona}
+                                </span>
+                            </div>
+                            <h3 className="text-3xl font-bold text-white leading-tight shadow-black drop-shadow-lg">{recipe.title}</h3>
+                        </div>
                     </div>
                 )}
                 <div className="flex flex-col md:flex-row justify-between md:items-start gap-4">
                     <div className="flex-1 w-full">
-                        <div className="flex flex-wrap items-center gap-2 mb-2">
-                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded bg-slate-900 text-slate-300 border border-slate-700`}>
-                                {recipe.chefPersona}
-                            </span>
-                            {recipe.cuisine && (
+                        {!displayImageUrl && (
+                            <>
+                                <div className="flex flex-wrap items-center gap-2 mb-2">
+                                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded bg-slate-900 text-slate-300 border border-slate-700`}>
+                                        {recipe.chefPersona}
+                                    </span>
+                                    {recipe.cuisine && (
+                                        <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded bg-lime-900/30 text-lime-400 border border-lime-800/50`}>
+                                            <Utensils className="w-3 h-3" />
+                                            {recipe.cuisine}
+                                        </span>
+                                    )}
+                                </div>
+                                <h3 className="text-xl font-bold text-white mb-2 group-hover:text-lime-400 transition-colors">{recipe.title}</h3>
+                            </>
+                        )}
+                        {recipe.cuisine && displayImageUrl && (
+                            <div className="flex flex-wrap items-center gap-2 mb-3 mt-4">
                                 <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded bg-lime-900/30 text-lime-400 border border-lime-800/50`}>
                                     <Utensils className="w-3 h-3" />
                                     {recipe.cuisine}
                                 </span>
-                            )}
-                        </div>
-                        <h3 className="text-xl font-bold text-white mb-2 group-hover:text-lime-400 transition-colors">{recipe.title}</h3>
+                            </div>
+                        )}
                         
                         <div className="flex flex-col gap-2 text-sm text-slate-400">
                              <div className="flex items-center gap-2 mb-1">
@@ -192,7 +324,8 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
                     <Trash2 className="w-4 h-4" />
                 </button>
             </div>
-        ))}
+          );
+        })}
         
         {filteredRecipes.length === 0 && (
             <div className="text-center py-10 border border-dashed border-slate-700 rounded-xl">

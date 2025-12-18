@@ -676,6 +676,37 @@ export const getRecipeById = async (recipeId: string, includeImages: boolean = t
     }
 };
 
+/**
+ * Fetches image URLs for multiple recipes in batch.
+ * Used for loading images in the cookbook list view without fetching full recipe data.
+ * @param recipeIds - Array of recipe IDs to fetch image URLs for
+ */
+export const getRecipeImageUrls = async (recipeIds: string[]): Promise<Map<string, string>> => {
+    if (!supabase || recipeIds.length === 0) return new Map();
+
+    try {
+        const { data, error } = await supabase
+            .schema('chef')
+            .from('recipes')
+            .select('id, image_url')
+            .in('id', recipeIds);
+
+        if (error) throw error;
+
+        const imageMap = new Map<string, string>();
+        (data || []).forEach((r: any) => {
+            if (r.image_url) {
+                imageMap.set(r.id, r.image_url);
+            }
+        });
+
+        return imageMap;
+    } catch (error) {
+        console.error('Error fetching recipe image URLs:', error);
+        return new Map();
+    }
+};
+
 export const deleteRecipe = async (recipeId: string): Promise<boolean> => {
     if (!supabase) return false;
     const { error } = await supabase.schema('chef').from('recipes').delete().eq('id', recipeId);

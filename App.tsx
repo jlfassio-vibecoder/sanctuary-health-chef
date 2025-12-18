@@ -51,6 +51,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<View>('generator');
+  const [pendingView, setPendingView] = useState<View | null>(null);
   
   const [dbStatus, setDbStatus] = useState<DbStatus>('checking');
   const [dbMessage, setDbMessage] = useState<string>('Connecting...');
@@ -97,6 +98,21 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // Capture view parameter early (before SSO processing may strip it)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const viewParam = params.get('view');
+    
+    // Validate view parameter against View type
+    const validViews: View[] = ['generator', 'history', 'active-workout', 'account', 'shopping', 'kitchen'];
+    if (viewParam && validViews.includes(viewParam as View)) {
+      setPendingView(viewParam as View);
+      console.log('✅ [DEBUG] App.tsx: View parameter captured:', viewParam);
+    } else if (viewParam) {
+      console.log('⚠️ [DEBUG] App.tsx: Invalid view parameter ignored:', viewParam);
+    }
+  }, []);
+
   // Log authentication state for debugging
   useEffect(() => {
     if (ssoError) {
@@ -127,6 +143,25 @@ const App: React.FC = () => {
     }
     setIsProfileLoading(false);
   };
+
+  // Apply view parameter after authentication and profile loading completes
+  useEffect(() => {
+    // Only apply if:
+    // 1. User is authenticated
+    // 2. Profile loading is complete
+    // 3. There's a pending view
+    // 4. Not currently loading session
+    if (isAuthenticated && !isProfileLoading && !loadingSession && !ssoLoading && pendingView) {
+      setCurrentView(pendingView);
+      setPendingView(null); // Clear pending view
+      
+      // Clean up view parameter from URL
+      const url = new URL(window.location.href);
+      url.searchParams.delete('view');
+      window.history.replaceState({}, document.title, url.toString());
+      console.log('✅ [DEBUG] App.tsx: View applied and URL parameter cleaned:', pendingView);
+    }
+  }, [isAuthenticated, isProfileLoading, loadingSession, ssoLoading, pendingView]);
 
   const handleProfileSave = async (updatedProfile: UserProfile) => {
     if (!currentUserId) return;
