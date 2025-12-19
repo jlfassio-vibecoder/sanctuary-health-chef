@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { DailyContext, TrainerType, TRAINER_FOCUS_OPTIONS } from '../types';
 import { Battery, Clock, Zap, PlayCircle, Loader2, Target, ChefHat, Utensils, XCircle, Dumbbell } from 'lucide-react';
 import { getRecentWorkouts } from '../services/dbService';
-import { supabase } from '../services/dbService';
+import { auth } from '../src/lib/firebase';
 
 interface Props {
   onSubmit: (data: DailyContext, trainer: TrainerType) => void;
@@ -95,9 +95,8 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
   }, [isLoading, trainer, selectedFocus]);
 
   const handleFetchWorkouts = async () => {
-    // Get current user from Supabase auth
-    const { data: { session } } = await supabase.auth.getSession();
-    const userId = session?.user?.id;
+    // Get current user from Firebase auth
+    const userId = auth.currentUser?.uid;
     
     if (userId) {
       const workouts = await getRecentWorkouts(userId);

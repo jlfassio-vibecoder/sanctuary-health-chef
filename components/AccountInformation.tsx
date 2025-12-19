@@ -1,4 +1,4 @@
-import type { User } from '@supabase/supabase-js';
+import type { User } from 'firebase/auth';
 import { Mail, Key, CalendarDays, Clock } from 'lucide-react';
 
 interface AccountInformationProps {
@@ -47,7 +47,7 @@ export default function AccountInformation({ user }: AccountInformationProps) {
         <div>
           <label className="block mb-1">
             <span className="text-sm font-semibold text-slate-300 flex items-center gap-2">
-              <Mail className="w-4 h-4 text-lime-500" />
+              <Mail className="w-4 h-4 text-[#f0dc7a]" />
               Email
             </span>
           </label>
@@ -60,44 +60,44 @@ export default function AccountInformation({ user }: AccountInformationProps) {
         <div>
           <label className="block mb-1">
             <span className="text-sm font-semibold text-slate-300 flex items-center gap-2">
-              <Key className="w-4 h-4 text-lime-500" />
+              <Key className="w-4 h-4 text-[#f0dc7a]" />
               User ID
             </span>
           </label>
           <div className="mt-1 px-4 py-2 bg-slate-900 rounded-lg border border-slate-700">
             <span className="text-white font-mono text-xs break-all">
-              {user.id}
+              {user.uid}
             </span>
           </div>
         </div>
 
         {/* Account Created */}
-        {user.created_at && (
+        {user.metadata.creationTime && (
           <div>
             <label className="block mb-1">
               <span className="text-sm font-semibold text-slate-300 flex items-center gap-2">
-                <CalendarDays className="w-4 h-4 text-lime-500" />
+                <CalendarDays className="w-4 h-4 text-[#f0dc7a]" />
                 Account Created
               </span>
             </label>
             <div className="mt-1 px-4 py-2 bg-slate-900 rounded-lg border border-slate-700">
-              <span className="text-white">{formatDate(user.created_at)}</span>
+              <span className="text-white">{formatDate(user.metadata.creationTime)}</span>
             </div>
           </div>
         )}
 
         {/* Last Sign In */}
-        {user.last_sign_in_at && (
+        {user.metadata.lastSignInTime && (
           <div>
             <label className="block mb-1">
               <span className="text-sm font-semibold text-slate-300 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-lime-500" />
+                <Clock className="w-4 h-4 text-[#f0dc7a]" />
                 Last Sign In
               </span>
             </label>
             <div className="mt-1 px-4 py-2 bg-slate-900 rounded-lg border border-slate-700">
               <span className="text-white">
-                {formatDateTime(user.last_sign_in_at)}
+                {formatDateTime(user.metadata.lastSignInTime)}
               </span>
             </div>
           </div>
@@ -106,10 +106,10 @@ export default function AccountInformation({ user }: AccountInformationProps) {
         {/* App Info */}
         <div className="mt-6 pt-4 border-t border-slate-700">
           <div className="text-xs text-slate-400">
-            <span className="font-semibold">App:</span> Fitcopilot Chef
+            <span className="font-semibold">App:</span> Sanctuary Health Chef
           </div>
           <div className="text-xs text-slate-400 mt-1">
-            <span className="font-semibold">Database:</span> Shared (chef schema)
+            <span className="font-semibold">Database:</span> Firestore
           </div>
         </div>
       </div>

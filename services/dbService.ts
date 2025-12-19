@@ -1,449 +1,330 @@
-import { createClient } from '@supabase/supabase-js';
+/**
+ * Firestore Database Service
+ * Migrated from Supabase to Firestore
+ * Maintains same function signatures for backward compatibility
+ */
+
+import { db } from '../src/lib/firebase';
+import { 
+  collection, 
+  doc, 
+  getDoc, 
+  getDocs, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  where, 
+  orderBy, 
+  limit,
+  Timestamp,
+  serverTimestamp,
+  writeBatch,
+  addDoc,
+  arrayUnion,
+  arrayRemove
+} from 'firebase/firestore';
 import { Recipe, RecipeSection, UserProfile, AuditItem, Ingredient, ShoppingListItem, Location, InventoryItem } from '../types';
 import { DEFAULT_UNITS, DEFAULT_PROFILE_VALUES } from '../constants/defaults';
 
-// Robust helper to find environment variables
-const getEnvVar = (key: string): string | undefined => {
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
-      // @ts-ignore
-      return import.meta.env[key];
-    }
-  } catch (e) { /* ignore */ }
-
-  try {
-    if (typeof process !== 'undefined' && process.env && process.env[key]) {
-      return process.env[key];
-    }
-  } catch (e) { /* ignore */ }
-
-  return undefined;
-};
-
-// Configuration - Centralized Database Credentials
-const SUPABASE_URL = 
-    getEnvVar('VITE_SUPABASE_URL') || 
-    getEnvVar('SUPABASE_URL');
-
-const SUPABASE_KEY = 
-    getEnvVar('VITE_SUPABASE_ANON_KEY') || 
-    getEnvVar('VITE_SUPABASE_KEY') || 
-    getEnvVar('SUPABASE_KEY');
-
-// Initialize Supabase Client with proper configuration
-let supabase: any = null;
-
-if (SUPABASE_URL && SUPABASE_KEY) {
-  try {
-    supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-      },
-    });
-    
-    // Log initialization only in development
-    if (import.meta.env.DEV) {
-      console.log("✅ Supabase initialized (Multi-Schema):", SUPABASE_URL);
-      console.log("✅ Using chef schema for all recipe data");
-    }
-  } catch (error) {
-    console.error("❌ Error initializing Supabase client:", error);
-  }
-} else {
-  console.warn("⚠️ Supabase credentials missing.");
-}
-
-export { supabase };
-
 /**
- * Helper to extract meaningful error messages from various error object shapes
+ * Helper to extract meaningful error messages
  */
 const extractErrorMessage = (error: any): string => {
-    if (!error) return "Unknown error";
-    
-    // 1. If it's already a string
-    if (typeof error === 'string') {
-        if (error.includes('[object Object]')) return "An unexpected object error occurred.";
-        return error;
-    }
-
-    // 2. If it's an Error object
-    if (error instanceof Error) return error.message;
-
-    // 3. Supabase/Postgrest Error Object
-    if (typeof error === 'object') {
-        // PostgrestError often has { message, details, hint, code }
-        if (error.message) {
-             let msg = error.message;
-             if (error.details) msg += ` (${error.details})`;
-             if (error.hint) msg += ` Hint: ${error.hint}`;
-             return msg;
-        }
-        
-        // Try JSON stringify as last resort, avoiding [object Object] output
-        try {
-            const json = JSON.stringify(error);
-            if (json !== '{}' && !json.includes('[object Object]')) return json;
-        } catch (e) {}
-    }
-    
-    return "An unexpected error occurred. Please check console for details.";
+  if (!error) return "Unknown error";
+  if (typeof error === 'string') {
+    if (error.includes('[object Object]')) return "An unexpected object error occurred.";
+    return error;
+  }
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error.message) {
+    let msg = error.message;
+    if (error.details) msg += ` (${error.details})`;
+    if (error.hint) msg += ` Hint: ${error.hint}`;
+    return msg;
+  }
+  return "An unexpected error occurred. Please check console for details.";
 };
 
 /**
- * Verifies that the database tables exist.
+ * Helper to convert Firestore Timestamp to ISO string
+ */
+const timestampToISO = (timestamp: any): string => {
+  if (!timestamp) return new Date().toISOString();
+  if (timestamp.toDate) return timestamp.toDate().toISOString();
+  if (timestamp instanceof Date) return timestamp.toISOString();
+  if (typeof timestamp === 'string') return timestamp;
+  return new Date().toISOString();
+};
+
+/**
+ * Helper to convert ISO string to Firestore Timestamp
+ */
+const isoToTimestamp = (iso: string | undefined): Timestamp | null => {
+  if (!iso) return null;
+  try {
+    return Timestamp.fromDate(new Date(iso));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Verifies that Firestore collections are accessible
  */
 export const verifyDatabaseSchema = async (): Promise<{ success: boolean; message: string }> => {
-    if (!supabase) return { success: false, message: "Client not initialized" };
-
-    try {
-        // 1. Check Recipes Table (Basic)
-        const { error: recipeError } = await supabase
-            .schema('chef')
-            .from('recipes')
-            .select('id')
-            .limit(1);
-
-        if (recipeError) {
-            console.error("Recipes Table Verification Error:", recipeError);
-            // Check if it's a "table doesn't exist" error
-            if (recipeError.code === 'PGRST205' || recipeError.message?.includes("does not exist") || recipeError.code === '42P01') {
-                 return { success: false, message: "Missing Tables. Please run the Full Schema SQL." };
-            }
-            // 406 errors or RLS-related errors are OK - tables exist, just need auth
-            if (recipeError.code === 'PGRST301' || recipeError.message?.includes('406') || recipeError.message?.includes('permission')) {
-                console.log("✅ Chef schema exists (RLS active, need authentication)");
-                return { success: true, message: "Database ready - Sign in to access data" };
-            }
-            return { success: false, message: `Recipes Table Error: ${extractErrorMessage(recipeError)}` };
-        }
-
-        // 2. Check Kitchen Tables (Canonical Ingredients)
-        const { error: kitchenError } = await supabase
-            .schema('chef')
-            .from('canonical_ingredients')
-            .select('id')
-            .limit(1);
-
-        if (kitchenError) {
-            if (kitchenError.code === 'PGRST205' || kitchenError.message?.includes("does not exist") || kitchenError.code === '42P01') {
-                 // Return false so the UI prompts to run the SQL, but distinguish the message if needed
-                 return { success: false, message: "Missing Kitchen Tables. Please run the Full Schema SQL." };
-            }
-        }
-
-        // Check User Profiles (in public schema)
-        const { error: profilesError } = await supabase
-            .schema('public')  // ✅ Use public schema for profiles
-            .from('profiles')
-            .select('id')
-            .limit(1);
-
-        if (profilesError && profilesError.code !== 'PGRST116') {
-             if (profilesError.code === '42P01' || profilesError.message?.includes("does not exist")) {
-                 return { success: false, message: "Missing Profile Table. Please run the Full Schema SQL." };
-             }
-        }
-
-        return { success: true, message: "Database Verified" };
-    } catch (e: any) {
-        return { success: false, message: extractErrorMessage(e) };
+  try {
+    // Try to access recipes collection
+    const recipesRef = collection(db, 'recipes');
+    const q = query(recipesRef, limit(1));
+    await getDocs(q);
+    
+    return { success: true, message: "Database Verified" };
+  } catch (e: any) {
+    const errorMsg = extractErrorMessage(e);
+    if (errorMsg.includes('permission') || errorMsg.includes('Permission')) {
+      return { success: true, message: "Database ready - Sign in to access data" };
     }
+    return { success: false, message: `Database Error: ${errorMsg}` };
+  }
 };
 
 /**
- * Retrieves the user profile from public schema.
+ * Retrieves the user profile from Firestore
  */
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
-    if (!supabase) return null;
+  try {
+    const profileRef = doc(db, 'profiles', userId);
+    const profileSnap = await getDoc(profileRef);
 
-    try {
-        let { data, error } = await supabase
-            .schema('public')  // ✅ Use public schema for profiles
-            .from('profiles')
-            .select('*')
-            .eq('id', userId)
-            .single();
-
-        // Fallback for user_id column
-        if (!data && (error?.code === 'PGRST116' || !error)) {
-             const { data: data2 } = await supabase
-                .schema('public')  // ✅ Use public schema for profiles
-                .from('profiles')
-                .select('*')
-                .eq('user_id', userId)
-                .single();
-             if (data2) { data = data2; error = null; }
-        }
-
-        if (error) {
-            // Handle table not found (Hub hasn't created it yet)
-            if (error.code === '42P01' || error.code === 'PGRST204') {
-                console.warn(
-                    '⚠️ Hub profiles table not found. Using defaults. (Table will be created by Hub app)'
-                );
-            } else if (error.code === 'PGRST116') {
-                // No rows returned - user doesn't have a profile yet
-                console.log(`ℹ️ No Hub profile found for user ${userId}, using defaults`);
-            } else if (error.code === '3F000') {
-                // Schema not found
-                console.warn('⚠️ Public schema issue. Using defaults.');
-            } else {
-                console.error("Error fetching user profile from database:", error);
-            }
-            
-            // Return defaults - app continues to work
-            return DEFAULT_PROFILE_VALUES;
-        }
-
-        if (!data) {
-            // No data but no error - return defaults
-            return DEFAULT_PROFILE_VALUES;
-        }
-
-        // Extract fitness_goals and preferred_units from JSONB fields
-        const fitnessGoals = data.fitness_goals || {};
-        const preferredUnits = (data.preferred_units || {}) as Record<string, string>;
-
-        return {
-            age: data.age ?? 30,
-            gender: data.gender ?? 'Other',
-            weight: Number(data.weight) ?? 170,
-            height: Number(data.height) ?? 70,
-            units: {
-                system: (preferredUnits.system || DEFAULT_UNITS.system) as 'imperial' | 'metric',
-                weight: (preferredUnits.weight || DEFAULT_UNITS.weight) as 'lbs' | 'kg',
-                height: (preferredUnits.height || DEFAULT_UNITS.height) as 'inches' | 'cm',
-                distance: (preferredUnits.distance || DEFAULT_UNITS.distance) as 'miles' | 'km'
-            },
-            goals: fitnessGoals.goals || [],
-            medicalConditions: fitnessGoals.dietary_restrictions || [],
-            injuries: fitnessGoals.allergies || [],
-            preferences: fitnessGoals.dislikes || [],
-            fitnessLevel: (fitnessGoals.cooking_skill || 'Intermediate') as 'Beginner' | 'Intermediate' | 'Advanced' | 'Elite'
-        };
-    } catch (e) {
-        console.error("Unexpected error fetching profile:", e);
-        return null;
+    if (!profileSnap.exists()) {
+      console.log(`ℹ️ No profile found for user ${userId}, using defaults`);
+      return DEFAULT_PROFILE_VALUES;
     }
+
+    const data = profileSnap.data();
+    const fitnessGoals = data.fitness_goals || {};
+    const preferredUnits = (data.preferred_units || {}) as Record<string, string>;
+
+    return {
+      age: data.age ?? 30,
+      gender: data.gender ?? 'Other',
+      weight: Number(data.weight) ?? 170,
+      height: Number(data.height) ?? 70,
+      units: {
+        system: (preferredUnits.system || DEFAULT_UNITS.system) as 'imperial' | 'metric',
+        weight: (preferredUnits.weight || DEFAULT_UNITS.weight) as 'lbs' | 'kg',
+        height: (preferredUnits.height || DEFAULT_UNITS.height) as 'inches' | 'cm',
+        distance: (preferredUnits.distance || DEFAULT_UNITS.distance) as 'miles' | 'km'
+      },
+      goals: fitnessGoals.goals || [],
+      medicalConditions: fitnessGoals.dietary_restrictions || [],
+      injuries: fitnessGoals.allergies || [],
+      preferences: fitnessGoals.dislikes || [],
+      fitnessLevel: (fitnessGoals.cooking_skill || 'Intermediate') as 'Beginner' | 'Intermediate' | 'Advanced' | 'Elite'
+    };
+  } catch (e) {
+    console.error("Error fetching profile:", e);
+    return DEFAULT_PROFILE_VALUES;
+  }
 };
 
 /**
- * Saves/Updates the user profile in public schema.
+ * Saves/Updates the user profile in Firestore
  */
 export const saveUserProfile = async (userId: string, profile: UserProfile): Promise<boolean> => {
-    if (!supabase) return false;
+  try {
+    const profileRef = doc(db, 'profiles', userId);
+    const payload = {
+      id: userId,
+      age: profile.age,
+      gender: profile.gender,
+      weight: profile.weight,
+      height: profile.height,
+      preferred_units: {
+        system: profile.units?.system || DEFAULT_UNITS.system,
+        weight: profile.units?.weight || DEFAULT_UNITS.weight,
+        height: profile.units?.height || DEFAULT_UNITS.height,
+        distance: profile.units?.distance || DEFAULT_UNITS.distance
+      },
+      fitness_goals: {
+        goals: profile.goals || [],
+        dietary_restrictions: profile.medicalConditions || [],
+        allergies: profile.injuries || [],
+        dislikes: profile.preferences || [],
+        cooking_skill: profile.fitnessLevel || 'Intermediate'
+      },
+      updated_at: serverTimestamp()
+    };
 
-    try {
-        // Map Chef app profile to user_profiles table structure
-        const payload = {
-            id: userId,
-            age: profile.age,
-            gender: profile.gender,
-            weight: profile.weight,
-            height: profile.height,
-            preferred_units: {
-                system: profile.units?.system || DEFAULT_UNITS.system,
-                weight: profile.units?.weight || DEFAULT_UNITS.weight,
-                height: profile.units?.height || DEFAULT_UNITS.height,
-                distance: profile.units?.distance || DEFAULT_UNITS.distance
-            },
-            fitness_goals: {
-                goals: profile.goals || [],
-                dietary_restrictions: profile.medicalConditions || [],
-                allergies: profile.injuries || [],
-                dislikes: profile.preferences || [],
-                cooking_skill: profile.fitnessLevel || 'Intermediate'
-            },
-            updated_at: new Date().toISOString()
-        };
-
-        const { error } = await supabase
-            .schema('public')  // ✅ Use public schema for profiles
-            .from('profiles')
-            .upsert(payload, { onConflict: 'id' }); 
-
-        if (error) {
-            console.error("Error saving profile:", error);
-            return false;
-        }
-        return true;
-    } catch (e) {
-        console.error("Unexpected error saving profile:", e);
-        return false;
-    }
+    await setDoc(profileRef, payload, { merge: true });
+    return true;
+  } catch (e) {
+    console.error("Error saving profile:", e);
+    return false;
+  }
 };
 
 /**
  * Helper: Processes ingredient list to Match/Create Canonical Ingredients and Link them.
  */
 const processRecipeIngredients = async (recipeId: string, sections: RecipeSection[]) => {
-    // Extract all structured ingredients from all sections
-    const allIngredients: Ingredient[] = [];
-    sections.forEach(s => {
-        if (s.ingredients) allIngredients.push(...s.ingredients);
-    });
+  // Extract all structured ingredients from all sections
+  const allIngredients: Ingredient[] = [];
+  sections.forEach(s => {
+    if (s.ingredients) allIngredients.push(...s.ingredients);
+  });
 
-    if (allIngredients.length === 0) return;
+  if (allIngredients.length === 0) return;
 
+  try {
     // 1. Get all names
     const names = allIngredients.map(i => i.item.trim());
     
     // 2. Fetch existing canonical ingredients
-    // Note: We still maintain canonical_ingredients for consistency and use by other features
-    // (e.g., auditRecipeIngredients), even though recipe_ingredients now uses ingredient_name directly
-    const { data: existingCanonical, error: fetchError } = await supabase
-        .schema('chef')
-        .from('canonical_ingredients')
-        .select('id, name')
-        .in('name', names); 
-
-    // If table doesn't exist, this will error. We should gracefully exit.
-    if (fetchError) {
-        console.warn("Skipping ingredient processing (Table 'canonical_ingredients' issue):", fetchError.message);
-        return;
-    }
-
+    // Firestore 'in' queries are limited to 10 items, so batch if needed
+    const canonicalRef = collection(db, 'canonical_ingredients');
     const existingMap = new Map<string, string>();
-    existingCanonical?.forEach((row: any) => existingMap.set(row.name.toLowerCase(), row.id));
+    
+    if (names.length > 0) {
+      const batchSize = 10;
+      for (let i = 0; i < names.length; i += batchSize) {
+        const batch = names.slice(i, i + batchSize);
+        const canonicalQuery = query(canonicalRef, where('name', 'in', batch));
+        const canonicalSnapshot = await getDocs(canonicalQuery);
+        
+        canonicalSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          existingMap.set(data.name.toLowerCase(), doc.id);
+        });
+      }
+    }
 
     // 3. Identify new ingredients to create
-    // Populate canonical_ingredients for consistency across the app (used by shopping audit, etc.)
     const newIngredients = names.filter(n => !existingMap.has(n.toLowerCase()));
-    
-    // Dedupe
     const uniqueNew = Array.from(new Set(newIngredients));
     
+    // 4. Create new canonical ingredients
     if (uniqueNew.length > 0) {
-        const { data: createdIngredients, error: createError } = await supabase
-            .schema('chef')
-            .from('canonical_ingredients')
-            .insert(uniqueNew.map(n => ({ name: n, category: 'General' })))
-            .select('id, name');
-        
-        if (!createError && createdIngredients) {
-            createdIngredients.forEach((row: any) => existingMap.set(row.name.toLowerCase(), row.id));
-        }
+      const batch = writeBatch(db);
+      uniqueNew.forEach(name => {
+        const newIngredientRef = doc(collection(db, 'canonical_ingredients'));
+        batch.set(newIngredientRef, { name, category: 'General' });
+        existingMap.set(name.toLowerCase(), newIngredientRef.id);
+      });
+      await batch.commit();
     }
 
-    // 4. Create links in recipe_ingredients
-    // Database schema: recipe_id, ingredient_name (TEXT, not ID!), quantity, unit, notes
-    // Note: We use ingredient_name directly (not foreign key to canonical_ingredients)
-    // This is intentional - allows flexibility and avoids foreign key constraints
-    // All ingredients are valid; no filtering needed
-    const linksToCreate = allIngredients.map(ing => {
-        return {
-            recipe_id: recipeId,
-            ingredient_name: ing.item.trim(), // Database uses ingredient_name (TEXT), not ingredient_id
-            quantity: parseFloat(ing.quantity) || null, // Database: 'quantity' not 'quantity_value'
-            unit: ing.unit || null, // Database: 'unit' not 'quantity_unit'
-            notes: ing.prep || null // Database: 'notes' not 'preparation_note'
-        };
-    });
+    // 5. Create links in recipe_ingredients
+    const linksToCreate = allIngredients.map(ing => ({
+      recipe_id: recipeId,
+      ingredient_name: ing.item.trim(),
+      quantity: parseFloat(ing.quantity) || null,
+      unit: ing.unit || null,
+      notes: ing.prep || null
+    }));
 
     if (linksToCreate.length > 0) {
-        await supabase.schema('chef').from('recipe_ingredients').insert(linksToCreate);
+      const batch = writeBatch(db);
+      linksToCreate.forEach(link => {
+        const linkRef = doc(collection(db, 'recipe_ingredients'));
+        batch.set(linkRef, link);
+      });
+      await batch.commit();
     }
+  } catch (error) {
+    console.warn("Skipping ingredient processing:", error);
+  }
 };
 
 /**
- * Saves a Recipe to the dedicated 'recipes' and 'recipe_content' tables.
+ * Saves a Recipe to Firestore
  */
 export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<string | null> => {
-  if (!supabase) return null;
-
   console.log("Saving recipe to DB...", recipe.title);
 
   try {
     let recipeId = recipe.id;
 
-    // 1. Insert/Update Parent Recipe Table
-    // Map Recipe object fields to actual database columns
-    
-    // Normalize difficulty to match database constraint (easy, medium, hard)
+    // Normalize difficulty
     const normalizeDifficulty = (diff: string): string | null => {
       if (!diff) return null;
       const lower = diff.toLowerCase();
       if (lower.includes('easy') || lower.includes('beginner')) return 'easy';
       if (lower.includes('medium') || lower.includes('intermediate')) return 'medium';
       if (lower.includes('hard') || lower.includes('advanced') || lower.includes('difficult')) return 'hard';
-      return null; // Invalid value - set to null
+      return null;
     };
     
-    // Normalize meal_type to match database constraint
+    // Normalize meal_type
     const normalizeMealType = (mealType: string | undefined): string | null => {
       if (!mealType) return null;
       const lower = mealType.toLowerCase().replace(/\s+/g, '_');
       const validTypes = ['breakfast', 'lunch', 'dinner', 'snack', 'pre_workout', 'post_workout'];
-      // Check if it matches one of the valid types (exact match or contains)
       for (const validType of validTypes) {
         if (lower === validType || lower.includes(validType)) return validType;
       }
-      return null; // Invalid value - set to null
+      return null;
     };
     
-    const recipePayload = {
+    const recipePayload: any = {
       user_id: userId,
-      name: recipe.title, // Database: 'name'
-      description: recipe.description || null, // Database: 'description'
-      meal_type: normalizeMealType(recipe.mealType), // Database: 'meal_type' (breakfast|lunch|dinner|snack|pre_workout|post_workout)
-      cuisine_type: recipe.cuisine || null, // Database: 'cuisine_type' not 'cuisine'
-      servings: recipe.servings || 1, // Database: 'servings'
-      prep_time_minutes: recipe.prepTime || null, // Database: 'prep_time_minutes'
-      cook_time_minutes: recipe.cookTime || null, // Database: 'cook_time_minutes'
-      difficulty_level: normalizeDifficulty(recipe.difficulty), // Database: 'difficulty_level' (easy|medium|hard only)
-      dietary_tags: recipe.dietaryTags || [], // Database: 'dietary_tags' (JSONB)
-      allergens: recipe.allergens || [], // Database: 'allergens' (JSONB)
-      chef_note: recipe.chefNote || null, // Database: 'chef_note'
-      chef_persona: recipe.chefPersona || null, // Database: 'chef_persona'
-      image_url: recipe.imageUrl || null, // Database: 'image_url'
-      is_favorite: recipe.isFavorite || false, // Database: 'is_favorite'
-      is_public: recipe.isPublic || false, // Database: 'is_public'
-      created_at: recipe.createdAt || new Date().toISOString(),
-      updated_at: new Date().toISOString()
-      // Note: Nutrition data (calories, protein, carbs, fat) and chef_persona are NOT in database
-      // These are calculated/displayed in the UI only
+      name: recipe.title,
+      description: recipe.description || null,
+      meal_type: normalizeMealType(recipe.mealType),
+      cuisine_type: recipe.cuisine || null,
+      servings: recipe.servings || 1,
+      prep_time_minutes: recipe.prepTime || null,
+      cook_time_minutes: recipe.cookTime || null,
+      difficulty_level: normalizeDifficulty(recipe.difficulty),
+      dietary_tags: recipe.dietaryTags || [],
+      allergens: recipe.allergens || [],
+      chef_note: recipe.chefNote || null,
+      chef_persona: recipe.chefPersona || null,
+      image_url: recipe.imageUrl || null,
+      is_favorite: recipe.isFavorite || false,
+      is_public: recipe.isPublic || false,
+      updated_at: serverTimestamp()
     };
 
-    let data, error;
-    
-    if (recipeId) {
-        const result = await supabase.schema('chef').from('recipes').update(recipePayload).eq('id', recipeId).select('id').single();
-        data = result.data;
-        error = result.error;
-    } else {
-        const result = await supabase.schema('chef').from('recipes').insert([recipePayload]).select('id').single();
-        data = result.data;
-        error = result.error;
+    // Handle created_at
+    if (recipe.createdAt) {
+      recipePayload.created_at = isoToTimestamp(recipe.createdAt);
+    } else if (!recipeId) {
+      recipePayload.created_at = serverTimestamp();
     }
 
-    if (error) throw error;
-    if (!data || !data.id) throw new Error("No ID returned from save.");
+    // 1. Save/Update Recipe
+    if (recipeId) {
+      const recipeRef = doc(db, 'recipes', recipeId);
+      await updateDoc(recipeRef, recipePayload);
+    } else {
+      const recipeRef = doc(collection(db, 'recipes'));
+      recipeId = recipeRef.id;
+      await setDoc(recipeRef, recipePayload);
+    }
 
-    recipeId = data.id;
-
-    // 2. Handle Content (Ingredients/Steps)
-    // Delete existing content for this recipe to replace with new state
-    await supabase.schema('chef').from('recipe_content').delete().eq('recipe_id', recipeId);
+    // 2. Delete existing content
+    const contentRef = collection(db, 'recipe_content');
+    const contentQuery = query(contentRef, where('recipe_id', '==', recipeId));
+    const contentSnapshot = await getDocs(contentQuery);
     
-    // Map sections to database schema
-    // Database schema: recipe_id, section_type, content, order_index
-    // section_type constraint: 'instructions' | 'notes' | 'tips' | 'nutrition'
+    const batch = writeBatch(db);
+    contentSnapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+
+    // 3. Insert new content
     const contentToInsert = recipe.sections.map((section, index) => {
-      // Normalize section type to match database constraint
-      let sectionType = 'notes'; // Default fallback
+      let sectionType = 'notes';
       const typeLower = section.type.toLowerCase();
       if (typeLower.includes('instruction') || typeLower.includes('step')) sectionType = 'instructions';
-      else if (typeLower.includes('ingredient')) sectionType = 'notes'; // Store ingredients as notes
-      else if (typeLower.includes('overview') || typeLower.includes('info')) sectionType = 'tips'; // Store Overview sections as tips
+      else if (typeLower.includes('ingredient')) sectionType = 'notes';
+      else if (typeLower.includes('overview') || typeLower.includes('info')) sectionType = 'tips';
       else if (typeLower.includes('tip')) sectionType = 'tips';
       else if (typeLower.includes('nutrition')) sectionType = 'nutrition';
       
-      // Serialize all section data as JSON in the content field
       const contentData = {
         title: section.title,
         items: section.items || [],
@@ -454,21 +335,35 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
       return {
         recipe_id: recipeId,
         section_type: sectionType,
-        content: JSON.stringify(contentData), // Store structured data as JSON text
+        content: JSON.stringify(contentData),
         order_index: index
       };
     });
 
-    const { error: contentError } = await supabase.schema('chef').from('recipe_content').insert(contentToInsert);
-    if (contentError) throw contentError;
+    if (contentToInsert.length > 0) {
+      const contentBatch = writeBatch(db);
+      contentToInsert.forEach(content => {
+        const contentRef = doc(collection(db, 'recipe_content'));
+        contentBatch.set(contentRef, content);
+      });
+      await contentBatch.commit();
+    }
 
-    // 3. Process Relational Ingredients (Phase 1)
-    // Wrap in try/catch so missing advanced tables don't block saving the recipe card
+    // 4. Process ingredients (non-critical)
     try {
-        await supabase.schema('chef').from('recipe_ingredients').delete().eq('recipe_id', recipeId);
-        await processRecipeIngredients(recipeId, recipe.sections);
+      // Delete existing recipe_ingredients
+      const recipeIngredientsRef = collection(db, 'recipe_ingredients');
+      const recipeIngredientsQuery = query(recipeIngredientsRef, where('recipe_id', '==', recipeId));
+      const recipeIngredientsSnapshot = await getDocs(recipeIngredientsQuery);
+      const deleteBatch = writeBatch(db);
+      recipeIngredientsSnapshot.docs.forEach(doc => {
+        deleteBatch.delete(doc.ref);
+      });
+      await deleteBatch.commit();
+
+      await processRecipeIngredients(recipeId, recipe.sections);
     } catch (ingError) {
-        console.warn("Secondary ingredient processing failed (non-critical):", ingError);
+      console.warn("Secondary ingredient processing failed (non-critical):", ingError);
     }
 
     console.log("✅ Recipe saved. ID:", recipeId);
@@ -476,692 +371,725 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
 
   } catch (error: any) {
     console.error("Critical error saving recipe:", error);
-    
-    // Detailed Error Reporting
     const msg = extractErrorMessage(error);
-    
-    if (msg && (msg.includes('column "ingredients"') || msg.includes("ingredients") || msg.includes('does not exist'))) {
-        alert("Database Schema Mismatch: The 'ingredients' column is missing in 'recipe_content' or a table is missing.\n\nPlease go to Settings > 'Copy Full Database Schema' and run it in the Supabase SQL Editor to fix this.");
-    } else {
-        alert(`Failed to save recipe: ${msg}`);
-    }
+    alert(`Failed to save recipe: ${msg}`);
     return null;
   }
 };
 
 /**
- * Fetches all recipes for a user from 'recipes' table.
- * @param userId - The user ID to fetch recipes for
- * @param includeImages - If false, excludes image_url column to speed up loading (default: false)
+ * Fetches all recipes for a user
  */
 export const getSavedRecipes = async (userId: string, includeImages: boolean = false): Promise<Recipe[]> => {
-    if (!supabase) return [];
+  try {
+    const recipesRef = collection(db, 'recipes');
+    const q = query(
+      recipesRef,
+      where('user_id', '==', userId),
+      orderBy('created_at', 'desc')
+    );
+    const recipesSnapshot = await getDocs(q);
 
-    try {
-        // When includeImages=false, exclude image_url to avoid transferring large base64 strings
-        // This significantly speeds up history loading and prevents database timeouts
-        const selectColumns = includeImages 
-            ? '*' 
-            : 'id, user_id, name, description, meal_type, cuisine_type, servings, prep_time_minutes, cook_time_minutes, difficulty_level, dietary_tags, allergens, chef_note, chef_persona, is_favorite, is_public, created_at, updated_at';
+    if (recipesSnapshot.empty) return [];
+
+    const recipeIds = recipesSnapshot.docs.map(doc => doc.id);
+    
+    // Fetch content for all recipes
+    // Firestore 'in' queries are limited to 10 items, so batch if needed
+    const contentRef = collection(db, 'recipe_content');
+    const contentMap = new Map<string, any[]>();
+    
+    if (recipeIds.length > 0) {
+      // Process in batches of 10
+      const batchSize = 10;
+      for (let i = 0; i < recipeIds.length; i += batchSize) {
+        const batch = recipeIds.slice(i, i + batchSize);
+        const contentQuery = query(contentRef, where('recipe_id', 'in', batch));
+        const contentSnapshot = await getDocs(contentQuery);
         
-        const { data: recipesData, error: recipesError } = await supabase
-            .schema('chef')
-            .from('recipes')
-            .select(selectColumns)
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false });
-
-        if (recipesError) throw recipesError;
-        if (!recipesData || recipesData.length === 0) return [];
-
-        const recipeIds = recipesData.map((r: any) => r.id);
-        
-        const { data: contentData, error: contentError } = await supabase
-            .schema('chef')
-            .from('recipe_content')
-            .select('*')
-            .in('recipe_id', recipeIds)
-            .order('order_index', { ascending: true });
-
-        if (contentError) throw contentError;
-
-        // Map DB result back to TypeScript Interface
-        const fullRecipes: Recipe[] = recipesData.map((r: any) => {
-            const thisContent = contentData.filter((c: any) => c.recipe_id === r.id);
-            
-            const sections: RecipeSection[] = thisContent.map((c: any) => {
-                // Parse JSON content back into structured data
-                let parsedContent: any = {};
-                try {
-                    parsedContent = JSON.parse(c.content || '{}');
-                } catch (e) {
-                    console.warn('Failed to parse recipe content JSON:', e);
-                }
-                
-                // Map section_type back to original type naming.
-                // We store Ingredients as 'notes' and Overview as 'tips' to fit DB constraints.
-                let type: 'Overview' | 'Ingredients' | 'Instructions' = 'Instructions';
-                if (c.section_type === 'instructions') type = 'Instructions';
-                else if (c.section_type === 'notes') type = 'Ingredients'; // We stored ingredients as notes
-                else if (c.section_type === 'tips') type = 'Overview';
-                
-                return {
-                    type: type,
-                    title: parsedContent.title || '',
-                    items: parsedContent.items || [],
-                    ingredients: parsedContent.ingredients || [],
-                    metadata: parsedContent.metadata || {}
-                };
-            });
-
-            // Map database columns to Recipe interface fields
-            return {
-                id: r.id,
-                title: r.name || '', // Database: 'name'
-                description: r.description || '', // Database: 'description'
-                difficulty: r.difficulty_level || '', // Database: 'difficulty_level'
-                chefNote: r.chef_note || '',
-                totalTime: (r.prep_time_minutes || 0) + (r.cook_time_minutes || 0),
-                prepTime: r.prep_time_minutes || 0,
-                cookTime: r.cook_time_minutes || 0,
-                calories: 0, // Not in database - calculated from ingredients
-                protein: 0, // Not in database - calculated from ingredients
-                carbs: 0, // Not in database - calculated from ingredients
-                fat: 0, // Not in database - calculated from ingredients
-                mealType: r.meal_type || '',
-                cuisine: r.cuisine_type || '', // Database: 'cuisine_type'
-                servings: r.servings || 1,
-                dietaryTags: r.dietary_tags || [], // Database: JSONB array
-                allergens: r.allergens || [], // Database: JSONB array
-                chefPersona: r.chef_persona || '',
-                imageUrl: r.image_url || '', // Will be undefined if includeImages=false, which is fine - images load on demand
-                isFavorite: r.is_favorite || false,
-                isPublic: r.is_public || false,
-                createdAt: r.created_at,
-                sections: sections
-            };
+        contentSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          const recipeId = data.recipe_id;
+          if (!contentMap.has(recipeId)) {
+            contentMap.set(recipeId, []);
+          }
+          contentMap.get(recipeId)!.push({ ...data, id: doc.id });
         });
-
-        return fullRecipes;
-
-    } catch (error: any) {
-        console.error("Error fetching recipes:", error);
-        return [];
+      }
     }
+
+    // Map to Recipe interface
+    const fullRecipes: Recipe[] = recipesSnapshot.docs.map(doc => {
+      const r = doc.data();
+      const thisContent = (contentMap.get(doc.id) || []).sort((a: any, b: any) => (a.order_index || 0) - (b.order_index || 0));
+      
+      const sections: RecipeSection[] = thisContent.map((c: any) => {
+        let parsedContent: any = {};
+        try {
+          parsedContent = JSON.parse(c.content || '{}');
+        } catch (e) {
+          console.warn('Failed to parse recipe content JSON:', e);
+        }
+        
+        let type: 'Overview' | 'Ingredients' | 'Instructions' = 'Instructions';
+        if (c.section_type === 'instructions') type = 'Instructions';
+        else if (c.section_type === 'notes') type = 'Ingredients';
+        else if (c.section_type === 'tips') type = 'Overview';
+        
+        return {
+          type: type,
+          title: parsedContent.title || '',
+          items: parsedContent.items || [],
+          ingredients: parsedContent.ingredients || [],
+          metadata: parsedContent.metadata || {}
+        };
+      });
+
+      return {
+        id: doc.id,
+        title: r.name || '',
+        description: r.description || '',
+        difficulty: r.difficulty_level || '',
+        chefNote: r.chef_note || '',
+        totalTime: (r.prep_time_minutes || 0) + (r.cook_time_minutes || 0),
+        prepTime: r.prep_time_minutes || 0,
+        cookTime: r.cook_time_minutes || 0,
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        mealType: r.meal_type || '',
+        cuisine: r.cuisine_type || '',
+        servings: r.servings || 1,
+        dietaryTags: r.dietary_tags || [],
+        allergens: r.allergens || [],
+        chefPersona: r.chef_persona || '',
+        imageUrl: includeImages ? (r.image_url || '') : '',
+        isFavorite: r.is_favorite || false,
+        isPublic: r.is_public || false,
+        createdAt: timestampToISO(r.created_at),
+        sections: sections
+      };
+    });
+
+    return fullRecipes;
+
+  } catch (error: any) {
+    console.error("Error fetching recipes:", error);
+    return [];
+  }
 };
 
 /**
- * Fetch a single recipe by ID.
- * @param recipeId - The recipe ID to fetch
- * @param includeImages - If false, excludes image_url column to speed up loading (default: true)
+ * Fetch a single recipe by ID
  */
 export const getRecipeById = async (recipeId: string, includeImages: boolean = true): Promise<Recipe | null> => {
-    if (!supabase) return null;
+  try {
+    const recipeRef = doc(db, 'recipes', recipeId);
+    const recipeSnap = await getDoc(recipeRef);
 
-    try {
-        const selectColumns = includeImages
-            ? '*'
-            : 'id, user_id, name, description, meal_type, cuisine_type, servings, prep_time_minutes, cook_time_minutes, difficulty_level, dietary_tags, allergens, chef_note, chef_persona, is_favorite, is_public, created_at, updated_at';
+    if (!recipeSnap.exists()) return null;
 
-        const { data: recipeRow, error: recipeError } = await supabase
-            .schema('chef')
-            .from('recipes')
-            .select(selectColumns)
-            .eq('id', recipeId)
-            .single();
+    const recipeRow = recipeSnap.data();
 
-        if (recipeError || !recipeRow) return null;
+    // Fetch content
+    const contentRef = collection(db, 'recipe_content');
+    const contentQuery = query(
+      contentRef,
+      where('recipe_id', '==', recipeId),
+      orderBy('order_index', 'asc')
+    );
+    const contentSnapshot = await getDocs(contentQuery);
 
-        const { data: contentData, error: contentError } = await supabase
-            .schema('chef')
-            .from('recipe_content')
-            .select('*')
-            .eq('recipe_id', recipeId)
-            .order('order_index', { ascending: true });
+    const sections: RecipeSection[] = contentSnapshot.docs.map(doc => {
+      const c = doc.data();
+      let parsedContent: any = {};
+      try {
+        parsedContent = JSON.parse(c.content || '{}');
+      } catch (e) {
+        console.warn('Failed to parse recipe content JSON:', e);
+      }
 
-        if (contentError) throw contentError;
+      let type: 'Overview' | 'Ingredients' | 'Instructions' = 'Instructions';
+      if (c.section_type === 'instructions') type = 'Instructions';
+      else if (c.section_type === 'notes') type = 'Ingredients';
+      else if (c.section_type === 'tips') type = 'Overview';
 
-        const sections: RecipeSection[] = (contentData || []).map((c: any) => {
-            let parsedContent: any = {};
-            try {
-                parsedContent = JSON.parse(c.content || '{}');
-            } catch (e) {
-                console.warn('Failed to parse recipe content JSON:', e);
-            }
+      return {
+        type,
+        title: parsedContent.title || '',
+        items: parsedContent.items || [],
+        ingredients: parsedContent.ingredients || [],
+        metadata: parsedContent.metadata || {}
+      };
+    });
 
-            // Map section_type back to original type naming.
-            // We store Ingredients as 'notes' and Overview as 'tips' to fit DB constraints.
-            let type: 'Overview' | 'Ingredients' | 'Instructions' = 'Instructions';
-            if (c.section_type === 'instructions') type = 'Instructions';
-            else if (c.section_type === 'notes') type = 'Ingredients';
-            else if (c.section_type === 'tips') type = 'Overview';
-
-            return {
-                type,
-                title: parsedContent.title || '',
-                items: parsedContent.items || [],
-                ingredients: parsedContent.ingredients || [],
-                metadata: parsedContent.metadata || {}
-            };
-        });
-
-        return {
-            id: recipeRow.id,
-            title: recipeRow.name || '',
-            description: recipeRow.description || '',
-            difficulty: recipeRow.difficulty_level || '',
-            chefNote: recipeRow.chef_note || '',
-            chefPersona: recipeRow.chef_persona || '',
-            totalTime: (recipeRow.prep_time_minutes || 0) + (recipeRow.cook_time_minutes || 0),
-            prepTime: recipeRow.prep_time_minutes || 0,
-            cookTime: recipeRow.cook_time_minutes || 0,
-            calories: 0,
-            protein: 0,
-            carbs: 0,
-            fat: 0,
-            mealType: recipeRow.meal_type || '',
-            cuisine: recipeRow.cuisine_type || '',
-            servings: recipeRow.servings || 1,
-            dietaryTags: recipeRow.dietary_tags || [],
-            allergens: recipeRow.allergens || [],
-            imageUrl: includeImages ? (recipeRow.image_url || '') : '',
-            isFavorite: recipeRow.is_favorite || false,
-            isPublic: recipeRow.is_public || false,
-            createdAt: recipeRow.created_at,
-            sections
-        };
-    } catch (error) {
-        console.error('Error fetching recipe by id:', error);
-        return null;
-    }
+    return {
+      id: recipeSnap.id,
+      title: recipeRow.name || '',
+      description: recipeRow.description || '',
+      difficulty: recipeRow.difficulty_level || '',
+      chefNote: recipeRow.chef_note || '',
+      chefPersona: recipeRow.chef_persona || '',
+      totalTime: (recipeRow.prep_time_minutes || 0) + (recipeRow.cook_time_minutes || 0),
+      prepTime: recipeRow.prep_time_minutes || 0,
+      cookTime: recipeRow.cook_time_minutes || 0,
+      calories: 0,
+      protein: 0,
+      carbs: 0,
+      fat: 0,
+      mealType: recipeRow.meal_type || '',
+      cuisine: recipeRow.cuisine_type || '',
+      servings: recipeRow.servings || 1,
+      dietaryTags: recipeRow.dietary_tags || [],
+      allergens: recipeRow.allergens || [],
+      imageUrl: includeImages ? (recipeRow.image_url || '') : '',
+      isFavorite: recipeRow.is_favorite || false,
+      isPublic: recipeRow.is_public || false,
+      createdAt: timestampToISO(recipeRow.created_at),
+      sections
+    };
+  } catch (error) {
+    console.error('Error fetching recipe by id:', error);
+    return null;
+  }
 };
 
 /**
- * Fetches image URLs for multiple recipes in batch.
- * Used for loading images in the cookbook list view without fetching full recipe data.
- * @param recipeIds - Array of recipe IDs to fetch image URLs for
+ * Fetches image URLs for multiple recipes in batch
  */
 export const getRecipeImageUrls = async (recipeIds: string[]): Promise<Map<string, string>> => {
-    if (!supabase || recipeIds.length === 0) return new Map();
+  if (recipeIds.length === 0) return new Map();
 
-    try {
-        const { data, error } = await supabase
-            .schema('chef')
-            .from('recipes')
-            .select('id, image_url')
-            .in('id', recipeIds);
-
-        if (error) throw error;
-
-        const imageMap = new Map<string, string>();
-        (data || []).forEach((r: any) => {
-            if (r.image_url) {
-                imageMap.set(r.id, r.image_url);
+  try {
+    // Firestore doesn't support querying by document ID with 'in', so fetch individually
+    // For better performance, we could batch read, but for now fetch sequentially
+    const imageMap = new Map<string, string>();
+    
+    // Batch reads (Firestore allows up to 10 documents per batch)
+    const batchSize = 10;
+    for (let i = 0; i < recipeIds.length; i += batchSize) {
+      const batch = recipeIds.slice(i, i + batchSize);
+      const promises = batch.map(async (id) => {
+        try {
+          const recipeRef = doc(db, 'recipes', id);
+          const recipeSnap = await getDoc(recipeRef);
+          if (recipeSnap.exists()) {
+            const data = recipeSnap.data();
+            if (data.image_url) {
+              imageMap.set(id, data.image_url);
             }
-        });
-
-        return imageMap;
-    } catch (error) {
-        console.error('Error fetching recipe image URLs:', error);
-        return new Map();
+          }
+        } catch (error) {
+          console.warn(`Error fetching recipe ${id}:`, error);
+        }
+      });
+      await Promise.all(promises);
     }
+
+    return imageMap;
+  } catch (error) {
+    console.error('Error fetching recipe image URLs:', error);
+    return new Map();
+  }
 };
 
 export const deleteRecipe = async (recipeId: string): Promise<boolean> => {
-    if (!supabase) return false;
-    const { error } = await supabase.schema('chef').from('recipes').delete().eq('id', recipeId);
-    if (error) {
-        console.error("Error deleting recipe:", error);
-        return false;
-    }
+  try {
+    // Delete recipe
+    const recipeRef = doc(db, 'recipes', recipeId);
+    await deleteDoc(recipeRef);
+
+    // Delete related content
+    const contentRef = collection(db, 'recipe_content');
+    const contentQuery = query(contentRef, where('recipe_id', '==', recipeId));
+    const contentSnapshot = await getDocs(contentQuery);
+    
+    const batch = writeBatch(db);
+    contentSnapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+
+    // Delete recipe ingredients
+    const recipeIngredientsRef = collection(db, 'recipe_ingredients');
+    const recipeIngredientsQuery = query(recipeIngredientsRef, where('recipe_id', '==', recipeId));
+    const recipeIngredientsSnapshot = await getDocs(recipeIngredientsQuery);
+    const ingredientsBatch = writeBatch(db);
+    recipeIngredientsSnapshot.docs.forEach(doc => {
+      ingredientsBatch.delete(doc.ref);
+    });
+    await ingredientsBatch.commit();
+
     return true;
+  } catch (error) {
+    console.error("Error deleting recipe:", error);
+    return false;
+  }
 };
 
 /**
- * Fetches recent workouts using the cross-schema function
- * This queries from the trainer schema safely via RPC
+ * Fetches recent workouts - Stubbed out (was using Supabase RPC)
+ * TODO: Re-implement if workout context is needed
  */
 export const getRecentWorkouts = async (userId: string): Promise<any[]> => {
-    if (!supabase) return [];
-
-    try {
-        // Use the cross-schema RPC function instead of direct query
-        const { data, error} = await supabase
-            .rpc('get_workout_context_for_recipe', {
-                p_user_id: userId,
-                p_hours_back: 168 // Last 7 days
-            });
-
-        if (error) {
-            console.warn("Could not fetch recent workouts:", error);
-            return [];
-        }
-
-        return data || [];
-    } catch (error) {
-        console.warn("Could not fetch recent workouts:", error);
-        return [];
-    }
+  console.warn("getRecentWorkouts: Not implemented in Firestore migration");
+  return [];
 };
 
 /**
- * Get workout context for meal planning
- * Returns recent workout data to inform recipe recommendations
+ * Get workout context for meal planning - Stubbed out (was using Supabase RPC)
+ * TODO: Re-implement if workout context is needed
  */
 export const getWorkoutContextForMealPlanning = async (userId: string, hoursBack: number = 24): Promise<any[]> => {
-    if (!supabase) return [];
-
-    try {
-        const { data, error } = await supabase
-            .rpc('get_workout_context_for_recipe', {
-                p_user_id: userId,
-                p_hours_back: hoursBack
-            });
-
-        if (error) {
-            console.warn("Could not fetch workout context:", error);
-            return [];
-        }
-
-        console.log(`✅ Fetched ${data?.length || 0} recent workouts for meal planning`);
-        return data || [];
-    } catch (error) {
-        console.warn("Error fetching workout context:", error);
-        return [];
-    }
+  console.warn("getWorkoutContextForMealPlanning: Not implemented in Firestore migration");
+  return [];
 };
 
 /**
- * Phase 2: Audit Logic
- * Matches recipe ingredients to user inventory to determine what needs to be bought.
+ * Audit Logic - Matches recipe ingredients to user inventory
  */
 export const auditRecipeIngredients = async (userId: string, ingredients: Ingredient[]): Promise<AuditItem[]> => {
-    if (!supabase) return [];
-
-    try {
-        // 1. Resolve Canonical IDs for incoming ingredients (Names -> IDs)
-        // We attempt to match names from the recipe to the canonical table
-        const names = ingredients.map(i => i.item.trim());
-        const { data: canonicalMatches, error: matchError } = await supabase
-            .schema('chef')
-            .from('canonical_ingredients')
-            .select('id, name')
-            .in('name', names);
+  try {
+    // 1. Resolve Canonical IDs
+    const names = ingredients.map(i => i.item.trim());
+    const canonicalRef = collection(db, 'canonical_ingredients');
+    
+    // Firestore 'in' queries are limited to 10 items, so batch if needed
+    const nameToIdMap = new Map<string, string>();
+    if (names.length > 0) {
+      const batchSize = 10;
+      for (let i = 0; i < names.length; i += batchSize) {
+        const batch = names.slice(i, i + batchSize);
+        const canonicalQuery = query(canonicalRef, where('name', 'in', batch));
+        const canonicalSnapshot = await getDocs(canonicalQuery);
         
-        if (matchError) throw matchError;
-
-        const nameToIdMap = new Map<string, string>();
-        canonicalMatches?.forEach((r: any) => nameToIdMap.set(r.name.toLowerCase(), r.id));
-
-        // 2. Fetch User's Inventory (What they already have)
-        // Database schema: user_inventory has ingredient_name (TEXT), no in_stock column
-        const { data: inventoryData, error: invError } = await supabase
-            .schema('chef')
-            .from('user_inventory')
-            .select('ingredient_name, id')
-            .eq('user_id', userId);
-        
-        if (invError) throw invError;
-        
-        const inventorySet = new Set<string>(); // Set of ingredient names in stock
-        const inventoryIdMap = new Map<string, string>(); // Map ingredient name -> Inventory Row ID
-
-        inventoryData?.forEach((inv: any) => {
-            const normalizedName = inv.ingredient_name?.toLowerCase();
-            if (normalizedName) {
-                inventorySet.add(normalizedName); // Store names, not IDs
-                inventoryIdMap.set(normalizedName, inv.id); // Map name -> inventory row ID
-            }
+        canonicalSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          nameToIdMap.set(data.name.toLowerCase(), doc.id);
         });
-
-        // 3. Build the Audit List
-        const auditList: AuditItem[] = ingredients.map(ing => {
-            const normalizedName = ing.item.trim().toLowerCase();
-            const canonicalId = nameToIdMap.get(normalizedName);
-            
-            // Check if ingredient name is in inventory
-            const hasInStock = inventorySet.has(normalizedName);
-
-            return {
-                name: ing.item,
-                qty: ing.quantity,
-                unit: ing.unit,
-                canonicalId: canonicalId,
-                inventoryId: inventoryIdMap.get(normalizedName), // Get inventory ID by name
-                inStock: hasInStock
-            };
-        });
-
-        return auditList;
-
-    } catch (error) {
-        console.error("Error auditing ingredients:", extractErrorMessage(error));
-        // Fallback: return as if user has nothing
-        return ingredients.map(ing => ({
-            name: ing.item,
-            qty: ing.quantity,
-            unit: ing.unit,
-            inStock: false
-        }));
+      }
     }
+
+    // 2. Fetch User's Inventory
+    const inventoryRef = collection(db, 'user_inventory');
+    const inventoryQuery = query(inventoryRef, where('user_id', '==', userId));
+    const inventorySnapshot = await getDocs(inventoryQuery);
+    
+    const inventorySet = new Set<string>();
+    const inventoryIdMap = new Map<string, string>();
+
+    inventorySnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      const normalizedName = data.ingredient_name?.toLowerCase();
+      if (normalizedName) {
+        inventorySet.add(normalizedName);
+        inventoryIdMap.set(normalizedName, doc.id);
+      }
+    });
+
+    // 3. Build the Audit List
+    const auditList: AuditItem[] = ingredients.map(ing => {
+      const normalizedName = ing.item.trim().toLowerCase();
+      const canonicalId = nameToIdMap.get(normalizedName);
+      const hasInStock = inventorySet.has(normalizedName);
+
+      return {
+        name: ing.item,
+        qty: ing.quantity,
+        unit: ing.unit,
+        canonicalId: canonicalId,
+        inventoryId: inventoryIdMap.get(normalizedName),
+        inStock: hasInStock
+      };
+    });
+
+    return auditList;
+
+  } catch (error) {
+    console.error("Error auditing ingredients:", extractErrorMessage(error));
+    return ingredients.map(ing => ({
+      name: ing.item,
+      qty: ing.quantity,
+      unit: ing.unit,
+      inStock: false
+    }));
+  }
 };
 
 /**
- * Phase 2: Commit Audit
- * 1. Checked items -> Update user_inventory
- * 2. Unchecked items -> Add to shopping_list
+ * Commit Audit - Updates inventory and shopping list
  */
 export const commitShoppingAudit = async (userId: string, auditItems: AuditItem[], recipeId?: string): Promise<boolean> => {
-    if (!supabase) return false;
+  try {
+    const inStockItems = auditItems.filter(i => i.inStock);
+    const toBuyItems = auditItems.filter(i => !i.inStock);
 
-    try {
-        // A. Separate Checked (In Inventory) vs Unchecked (Need to Buy)
-        const inStockItems = auditItems.filter(i => i.inStock);
-        const toBuyItems = auditItems.filter(i => !i.inStock);
+    // Process inventory updates first (separate batch to avoid conflicts)
+    if (inStockItems.length > 0) {
+      const inventoryBatch = writeBatch(db);
+      
+      for (const item of inStockItems) {
+        // Check if inventory item exists
+        const inventoryRef = collection(db, 'user_inventory');
+        const inventoryQuery = query(
+          inventoryRef,
+          where('user_id', '==', userId),
+          where('ingredient_name', '==', item.name)
+        );
+        const inventorySnapshot = await getDocs(inventoryQuery);
 
-        // B. Update Inventory (Upsert)
-        // Database schema: uses ingredient_name (TEXT), no in_stock column
-        if (inStockItems.length > 0) {
-            const inventoryUpserts = inStockItems.map(item => ({
-                user_id: userId,
-                ingredient_name: item.name // Use name instead of canonicalId
-                // Note: No in_stock column in database
-            }));
-            
-            // Database has unique constraint on (user_id, ingredient_name)
-            const { error: invError } = await supabase
-                .schema('chef')
-                .from('user_inventory')
-                .upsert(inventoryUpserts, { onConflict: 'user_id,ingredient_name' });
-            
-            if (invError) console.error("Inventory update error:", invError);
+        if (inventorySnapshot.empty) {
+          const newInventoryRef = doc(collection(db, 'user_inventory'));
+          inventoryBatch.set(newInventoryRef, {
+            user_id: userId,
+            ingredient_name: item.name,
+            in_stock: true
+          });
+        } else {
+          // Update existing to ensure in_stock is true
+          const existingRef = inventorySnapshot.docs[0].ref;
+          inventoryBatch.update(existingRef, {
+            in_stock: true
+          });
         }
+      }
+      
+      await inventoryBatch.commit();
+    }
 
-        // C. Add to Shopping List with Deduplication
-        // Database schema: uses ingredient_name (TEXT) and is_purchased (not is_checked)
-        // Uses partial unique index to prevent duplicate unpurchased items
-        if (toBuyItems.length > 0) {
-            // Fetch existing unpurchased items for these ingredients
-            const ingredientNames = toBuyItems.map(i => i.name);
-            const { data: existing } = await supabase
-                .schema('chef')
-                .from('shopping_list')
-                .select('*')
-                .eq('user_id', userId)
-                .eq('is_purchased', false)
-                .in('ingredient_name', ingredientNames);
-            
-            // Create a map of existing items (normalized by lowercase name)
-            const existingMap = new Map<string, any>(
-                (existing || []).map((item: any) => [item.ingredient_name.toLowerCase(), item])
-            );
-            
-            // Merge new items with existing, handling unit mismatches
-            const upsertPayload = toBuyItems.map(item => {
-                const existingItem = existingMap.get(item.name.toLowerCase());
-                
-                if (existingItem && existingItem.unit === item.unit) {
-                    // Units match - sum quantities
-                    return {
-                        ...existingItem,
-                        quantity: (existingItem.quantity || 0) + (parseFloat(item.qty) || 0),
-                        recipe_id: null // Multiple recipes
-                    };
-                } else if (existingItem && existingItem.unit !== item.unit) {
-                    // Units don't match - keep both quantities visible
-                    // Strategy: Add quantities as text to preserve both measurements
-                    // Example: "2 cups + 500 grams" 
-                    // This prevents data loss when units can't be directly compared
-                    const existingQty = existingItem.quantity ? `${existingItem.quantity} ${existingItem.unit || ''}`.trim() : '';
-                    const newQty = item.qty ? `${item.qty} ${item.unit || ''}`.trim() : '';
-                    const combinedQty = existingQty && newQty ? `${existingQty} + ${newQty}` : (newQty || existingQty);
-                    
-                    return {
-                        ...existingItem,
-                        quantity: null, // Clear numeric quantity since we have mixed units
-                        unit: combinedQty, // Store combined quantities in unit field for display
-                        recipe_id: null // Multiple recipes
-                    };
-                } else {
-                    // New item - first time adding this ingredient
-                    return {
-                        user_id: userId,
-                        ingredient_name: item.name,
-                        recipe_id: recipeId || null,
-                        is_purchased: false,
-                        quantity: parseFloat(item.qty) || null,
-                        unit: item.unit || null
-                    };
-                }
-            });
-            
-            const { error: shopError } = await supabase
-                .schema('chef')
-                .from('shopping_list')
-                .upsert(upsertPayload, { onConflict: 'user_id,ingredient_name' });
-            
-            if (shopError) throw shopError;
+    // Process shopping list updates
+    if (toBuyItems.length > 0) {
+      const ingredientNames = toBuyItems.map(i => i.name);
+      const shoppingListRef = collection(db, 'shopping_list');
+      const existingQuery = query(
+        shoppingListRef,
+        where('user_id', '==', userId),
+        where('is_purchased', '==', false)
+      );
+      const existingSnapshot = await getDocs(existingQuery);
+
+      const existingMap = new Map<string, any>();
+      existingSnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (ingredientNames.includes(data.ingredient_name)) {
+          existingMap.set(data.ingredient_name.toLowerCase(), { ...data, id: doc.id });
         }
+      });
 
-        return true;
-    } catch (error) {
-        console.error("Error committing audit:", error);
-        return false;
-    }
-};
-
-// Phase 3: Get Shopping List
-export const getShoppingList = async (userId: string): Promise<ShoppingListItem[]> => {
-    if (!supabase) return [];
-    try {
-        // Database schema: shopping_list has ingredient_name (TEXT), not ingredient_id
-        const { data, error } = await supabase
-            .schema('chef')
-            .from('shopping_list')
-            .select(`
-                id, 
-                ingredient_name,
-                is_purchased
-            `)
-            .eq('user_id', userId)
-            .order('is_purchased', { ascending: true }); // Unpurchased first
-
-        if (error) throw error;
-
-        // Map ingredient_name to the expected format
-        return data.map((d: any) => ({
-            id: d.id,
-            ingredientId: d.ingredient_name || '', // Legacy field: contains ingredient name (not UUID)
-                                                     // Kept for backward compatibility
-            name: d.ingredient_name || 'Unknown Item', // Use this field for ingredient name
-            isChecked: d.is_purchased || false
-        }));
-    } catch (e) {
-        console.error("Error fetching shopping list", e);
-        return [];
-    }
-};
-
-// Phase 3: Toggle Item
-export const toggleShoppingItem = async (itemId: string, isChecked: boolean) => {
-    if (!supabase) return;
-    // Database uses is_purchased, not is_checked
-    await supabase.schema('chef').from('shopping_list').update({ is_purchased: isChecked }).eq('id', itemId);
-};
-
-// Phase 3: Get Locations
-export const getUserLocations = async (userId: string): Promise<Location[]> => {
-    if (!supabase) return [];
-    try {
-        let { data } = await supabase.schema('chef').from('locations').select('*').eq('user_id', userId);
+      const shoppingBatch = writeBatch(db);
+      
+      for (const item of toBuyItems) {
+        const existingItem = existingMap.get(item.name.toLowerCase());
         
-        if (!data || data.length === 0) {
-            // Seed defaults if empty
-            const defaults = [
-                { user_id: userId, name: 'Pantry', icon: 'Box' },
-                { user_id: userId, name: 'Fridge', icon: 'Snowflake' },
-                { user_id: userId, name: 'Freezer', icon: 'IceCream' },
-                { user_id: userId, name: 'Spice Rack', icon: 'Flame' }
-            ];
-            const { data: newLocs } = await supabase.schema('chef').from('locations').insert(defaults).select();
-            return newLocs || [];
+        if (existingItem && existingItem.unit === item.unit) {
+          // Update existing
+          const existingRef = doc(db, 'shopping_list', existingItem.id);
+          shoppingBatch.update(existingRef, {
+            quantity: (existingItem.quantity || 0) + (parseFloat(item.qty) || 0),
+            recipe_id: null
+          });
+        } else if (existingItem && existingItem.unit !== item.unit) {
+          // Merge units
+          const existingQty = existingItem.quantity ? `${existingItem.quantity} ${existingItem.unit || ''}`.trim() : '';
+          const newQty = item.qty ? `${item.qty} ${item.unit || ''}`.trim() : '';
+          const combinedQty = existingQty && newQty ? `${existingQty} + ${newQty}` : (newQty || existingQty);
+          
+          const existingRef = doc(db, 'shopping_list', existingItem.id);
+          shoppingBatch.update(existingRef, {
+            quantity: null,
+            unit: combinedQty,
+            recipe_id: null
+          });
+        } else {
+          // New item
+          const newItemRef = doc(collection(db, 'shopping_list'));
+          shoppingBatch.set(newItemRef, {
+            user_id: userId,
+            ingredient_name: item.name,
+            recipe_id: recipeId || null,
+            is_purchased: false,
+            quantity: parseFloat(item.qty) || null,
+            unit: item.unit || null
+          });
         }
-        return data;
-    } catch (e) {
-        return [];
+      }
+      
+      await shoppingBatch.commit();
     }
-};
 
-// Phase 3: Move Shopping to Inventory
-export const moveShoppingToInventory = async (
-    userId: string, 
-    itemsToMove: ShoppingListItem[], 
-    locationMap: Record<string, string> // ItemName -> LocationId
-): Promise<{ success: boolean; message?: string }> => {
-    if (!supabase) return { success: false, message: "DB not initialized" };
-    
-    try {
-        // 1. Prepare Inventory Upserts
-        // Database schema: user_inventory uses ingredient_name (TEXT), has in_stock column
-        // Deduplicate items by ingredient_name (keep last location for duplicates)
-        const uniqueItems = new Map<string, any>();
-        itemsToMove.forEach(item => {
-            const locId = locationMap[item.name];
-            uniqueItems.set(item.name.toLowerCase(), {
-                user_id: userId,
-                ingredient_name: item.name,
-                location_id: locId,
-                in_stock: true // Mark as in stock when moving from shopping to inventory
-            });
-        });
-        
-        const upserts = Array.from(uniqueItems.values());
-
-        // 2. Upsert to Inventory
-        // Database has unique constraint on (user_id, ingredient_name)
-        const { error: invError } = await supabase
-            .schema('chef')
-            .from('user_inventory')
-            .upsert(upserts, { onConflict: 'user_id,ingredient_name' });
-        
-        if (invError) throw invError;
-
-        // 3. Delete from Shopping List
-        const idsToDelete = itemsToMove.map(i => i.id);
-        const { error: delError } = await supabase
-            .schema('chef')
-            .from('shopping_list')
-            .delete()
-            .in('id', idsToDelete);
-            
-        if (delError) throw delError;
-
-        return { success: true };
-    } catch (e: any) {
-        console.error("Error moving to inventory", e);
-        const msg = extractErrorMessage(e);
-        return { success: false, message: msg };
-    }
+    return true;
+  } catch (error) {
+    console.error("Error committing audit:", error);
+    return false;
+  }
 };
 
 /**
- * Phase 4: Kitchen Manager Logic
+ * Get Shopping List
  */
+export const getShoppingList = async (userId: string): Promise<ShoppingListItem[]> => {
+  try {
+    const shoppingListRef = collection(db, 'shopping_list');
+    const q = query(
+      shoppingListRef,
+      where('user_id', '==', userId),
+      orderBy('is_purchased', 'asc')
+    );
+    const snapshot = await getDocs(q);
 
-// Get full inventory with location data
+    return snapshot.docs.map(doc => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        ingredientId: d.ingredient_name || '',
+        name: d.ingredient_name || 'Unknown Item',
+        isChecked: d.is_purchased || false
+      };
+    });
+  } catch (e) {
+    console.error("Error fetching shopping list", e);
+    return [];
+  }
+};
+
+/**
+ * Toggle Shopping Item
+ */
+export const toggleShoppingItem = async (itemId: string, isChecked: boolean) => {
+  try {
+    const itemRef = doc(db, 'shopping_list', itemId);
+    await updateDoc(itemRef, { is_purchased: isChecked });
+  } catch (error) {
+    console.error("Error toggling shopping item:", error);
+  }
+};
+
+/**
+ * Get User Locations
+ */
+export const getUserLocations = async (userId: string): Promise<Location[]> => {
+  try {
+    const locationsRef = collection(db, 'locations');
+    const q = query(locationsRef, where('user_id', '==', userId));
+    const snapshot = await getDocs(q);
+
+    if (snapshot.empty) {
+      // Seed defaults
+      const defaults = [
+        { user_id: userId, name: 'Pantry', icon: 'Box' },
+        { user_id: userId, name: 'Fridge', icon: 'Snowflake' },
+        { user_id: userId, name: 'Freezer', icon: 'IceCream' },
+        { user_id: userId, name: 'Spice Rack', icon: 'Flame' }
+      ];
+      
+      const batch = writeBatch(db);
+      defaults.forEach(location => {
+        const locationRef = doc(collection(db, 'locations'));
+        batch.set(locationRef, location);
+      });
+      await batch.commit();
+
+      // Fetch again
+      const newSnapshot = await getDocs(q);
+      return newSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Location));
+    }
+
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as Location));
+  } catch (e) {
+    console.error("Error fetching locations:", e);
+    return [];
+  }
+};
+
+/**
+ * Move Shopping to Inventory
+ */
+export const moveShoppingToInventory = async (
+  userId: string, 
+  itemsToMove: ShoppingListItem[], 
+  locationMap: Record<string, string>
+): Promise<{ success: boolean; message?: string }> => {
+  try {
+    const uniqueItems = new Map<string, any>();
+
+    itemsToMove.forEach(item => {
+      const locId = locationMap[item.name];
+      uniqueItems.set(item.name.toLowerCase(), {
+        user_id: userId,
+        ingredient_name: item.name,
+        location_id: locId,
+        in_stock: true
+      });
+    });
+
+    // Fetch existing inventory items first (batch query)
+    const ingredientNames = Array.from(uniqueItems.values()).map(item => item.ingredient_name);
+    const inventoryRef = collection(db, 'user_inventory');
+    const inventoryQuery = query(
+      inventoryRef,
+      where('user_id', '==', userId),
+      where('ingredient_name', 'in', ingredientNames.length > 10 ? ingredientNames.slice(0, 10) : ingredientNames)
+    );
+    const inventorySnapshot = await getDocs(inventoryQuery);
+
+    const existingInventoryMap = new Map<string, any>();
+    inventorySnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      existingInventoryMap.set(data.ingredient_name.toLowerCase(), { ...data, id: doc.id });
+    });
+
+    const batch = writeBatch(db);
+
+    // Upsert to inventory
+    for (const [key, item] of uniqueItems) {
+      const existing = existingInventoryMap.get(key);
+      
+      if (existing) {
+        // Update existing
+        const existingRef = doc(db, 'user_inventory', existing.id);
+        batch.update(existingRef, {
+          location_id: item.location_id,
+          in_stock: true
+        });
+      } else {
+        // Create new
+        const newInventoryRef = doc(collection(db, 'user_inventory'));
+        batch.set(newInventoryRef, item);
+      }
+    }
+
+    // Delete from shopping list
+    itemsToMove.forEach(item => {
+      const itemRef = doc(db, 'shopping_list', item.id);
+      batch.delete(itemRef);
+    });
+
+    await batch.commit();
+    return { success: true };
+  } catch (e: any) {
+    console.error("Error moving to inventory", e);
+    const msg = extractErrorMessage(e);
+    return { success: false, message: msg };
+  }
+};
+
+/**
+ * Get User Inventory
+ */
 export const getUserInventory = async (userId: string): Promise<InventoryItem[]> => {
-    if (!supabase) return [];
+  try {
+    const inventoryRef = collection(db, 'user_inventory');
+    const q = query(inventoryRef, where('user_id', '==', userId));
+    const snapshot = await getDocs(q);
 
-    try {
-        // Database schema: user_inventory uses ingredient_name (TEXT), has in_stock column for staple management
-        const { data, error } = await supabase
-            .schema('chef')
-            .from('user_inventory')
-            .select(`
-                id, 
-                ingredient_name,
-                quantity,
-                unit,
-                in_stock,
-                locations ( name, id )
-            `)
-            .eq('user_id', userId);
-        
-        if (error) throw error;
+    // Fetch locations separately (Firestore doesn't support joins)
+    const locationIds = new Set<string>();
+    snapshot.docs.forEach(doc => {
+      const data = doc.data();
+      if (data.location_id) locationIds.add(data.location_id);
+    });
 
-        return data.map((row: any) => ({
-            id: row.id,
-            ingredientId: row.ingredient_name || '', // Use name for compatibility
-            ingredientName: row.ingredient_name || 'Unknown',
-            name: row.ingredient_name || 'Unknown',
-            quantity: row.quantity,
-            unit: row.unit,
-            locationId: row.locations?.id,
-            locationName: row.locations?.name || 'Unsorted',
-            inStock: row.in_stock ?? true // Actual in_stock status from database
-        }));
-    } catch (e) {
-        console.error("Error fetching inventory:", e);
-        return [];
-    }
-};
-
-// Toggle Status (Deplete -> Auto Add to Shopping List)
-// Supports "Staple Management" - items remain in inventory when depleted
-export const updateInventoryStatus = async (
-    userId: string, 
-    inventoryItem: InventoryItem, 
-    newInStock: boolean
-): Promise<boolean> => {
-    if (!supabase) return false;
-
-    try {
-        // Update in_stock status in user_inventory
-        // Items are NOT deleted - they remain visible as "Out of Stock" for staple management
-        const { error: updateError } = await supabase
-            .schema('chef')
-            .from('user_inventory')
-            .update({ in_stock: newInStock })
-            .eq('id', inventoryItem.id);
-        
-        if (updateError) throw updateError;
-
-        // If depleted, also add to shopping list for easy repurchase
-        if (!newInStock) {
-            await supabase.schema('chef').from('shopping_list').upsert({
-                user_id: userId,
-                ingredient_name: inventoryItem.name,
-                is_purchased: false,
-                quantity: inventoryItem.quantity,
-                unit: inventoryItem.unit
-            }, { onConflict: 'user_id,ingredient_name' });
+    const locationsMap = new Map<string, any>();
+    if (locationIds.size > 0) {
+      // Fetch locations individually (Firestore doesn't support querying by document ID with 'in')
+      const locationPromises = Array.from(locationIds).map(async (locationId) => {
+        try {
+          const locationRef = doc(db, 'locations', locationId);
+          const locationSnap = await getDoc(locationRef);
+          if (locationSnap.exists()) {
+            locationsMap.set(locationId, locationSnap.data());
+          }
+        } catch (error) {
+          console.warn(`Error fetching location ${locationId}:`, error);
         }
-
-        return true;
-    } catch (e) {
-        console.error("Error updating inventory status:", e);
-        return false;
+      });
+      await Promise.all(locationPromises);
     }
+
+    return snapshot.docs.map(doc => {
+      const row = doc.data();
+      const location = locationsMap.get(row.location_id);
+      return {
+        id: doc.id,
+        ingredientId: row.ingredient_name || '',
+        ingredientName: row.ingredient_name || 'Unknown',
+        name: row.ingredient_name || 'Unknown',
+        quantity: row.quantity,
+        unit: row.unit,
+        locationId: row.location_id,
+        locationName: location?.name || 'Unsorted',
+        inStock: row.in_stock ?? true
+      };
+    });
+  } catch (e) {
+    console.error("Error fetching inventory:", e);
+    return [];
+  }
 };
 
-// Update Inventory Item Location
-export const updateInventoryLocation = async (
-    inventoryItemId: string,
-    newLocationId: string | null
+/**
+ * Update Inventory Status
+ */
+export const updateInventoryStatus = async (
+  userId: string, 
+  inventoryItem: InventoryItem, 
+  newInStock: boolean
 ): Promise<boolean> => {
-    if (!supabase) return false;
-    
-    try {
-        const { error } = await supabase
-            .schema('chef')
-            .from('user_inventory')
-            .update({ location_id: newLocationId })
-            .eq('id', inventoryItemId);
-        
-        if (error) throw error;
-        return true;
-    } catch (e) {
-        console.error("Error updating inventory location:", e);
-        return false;
+  try {
+    const itemRef = doc(db, 'user_inventory', inventoryItem.id);
+    await updateDoc(itemRef, { in_stock: newInStock });
+
+    // If depleted, add to shopping list
+    if (!newInStock) {
+      // Check if already in shopping list
+      const shoppingListRef = collection(db, 'shopping_list');
+      const shoppingQuery = query(
+        shoppingListRef,
+        where('user_id', '==', userId),
+        where('ingredient_name', '==', inventoryItem.name),
+        where('is_purchased', '==', false)
+      );
+      const shoppingSnapshot = await getDocs(shoppingQuery);
+
+      if (shoppingSnapshot.empty) {
+        const newItemRef = doc(collection(db, 'shopping_list'));
+        await setDoc(newItemRef, {
+          user_id: userId,
+          ingredient_name: inventoryItem.name,
+          is_purchased: false,
+          quantity: inventoryItem.quantity,
+          unit: inventoryItem.unit
+        });
+      }
     }
+
+    return true;
+  } catch (e) {
+    console.error("Error updating inventory status:", e);
+    return false;
+  }
+};
+
+/**
+ * Update Inventory Location
+ */
+export const updateInventoryLocation = async (
+  inventoryItemId: string,
+  newLocationId: string | null
+): Promise<boolean> => {
+  try {
+    const itemRef = doc(db, 'user_inventory', inventoryItemId);
+    await updateDoc(itemRef, { location_id: newLocationId });
+    return true;
+  } catch (e) {
+    console.error("Error updating inventory location:", e);
+    return false;
+  }
 };
