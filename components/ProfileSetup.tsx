@@ -87,7 +87,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
     return (
       <div className="bg-slate-800 p-4 rounded-xl shadow-lg border border-slate-700 flex justify-between items-center mb-6">
         <div className="flex items-center space-x-4">
-          <div className="p-3 bg-lime-500 rounded-full">
+          <div className="p-3 bg-[#f0dc7a] rounded-full">
             <ChefHat className="text-slate-900 w-6 h-6" />
           </div>
           <div>
@@ -99,7 +99,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
         </div>
         <button 
           onClick={() => setIsOpen(true)}
-          className="px-4 py-2 text-sm text-lime-400 hover:text-lime-300 font-medium transition-colors"
+          className="px-4 py-2 text-sm text-[#f0dc7a] hover:text-[#f4e59c] font-medium transition-colors"
         >
           Edit Profile
         </button>
@@ -111,7 +111,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
     <div className="bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 mb-6 animate-in fade-in slide-in-from-top-4 duration-300">
       <div className="flex justify-between items-start mb-6">
         <h3 className="text-xl font-bold text-white flex items-center gap-2">
-            <User className="w-5 h-5 text-lime-400" /> Edit Dietary Profile
+            <User className="w-5 h-5 text-[#f0dc7a]" /> Edit Dietary Profile
         </h3>
         
         <div className="flex items-center bg-slate-900 rounded-lg p-1 border border-slate-700">
@@ -119,7 +119,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
                 onClick={() => localProfile.units !== 'standard' && toggleUnits()}
                 className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
                     localProfile.units === 'standard' 
-                    ? 'bg-lime-500 text-slate-900 shadow' 
+                    ? 'bg-[#f0dc7a] text-slate-900 shadow' 
                     : 'text-slate-400 hover:text-white'
                 }`}
             >
@@ -129,7 +129,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
                 onClick={() => localProfile.units !== 'metric' && toggleUnits()}
                 className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
                     localProfile.units === 'metric' 
-                    ? 'bg-lime-500 text-slate-900 shadow' 
+                    ? 'bg-[#f0dc7a] text-slate-900 shadow' 
                     : 'text-slate-400 hover:text-white'
                 }`}
             >
@@ -146,7 +146,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
             type="number" 
             value={localProfile.age} 
             onChange={(e) => handleChange('age', parseInt(e.target.value))}
-            className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-lime-500 outline-none"
+            className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-[#f0dc7a] outline-none"
           />
         </div>
         
@@ -155,7 +155,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
           <select 
             value={localProfile.gender}
             onChange={(e) => handleChange('gender', e.target.value)}
-            className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-lime-500 outline-none"
+            className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-[#f0dc7a] outline-none"
           >
             <option>Male</option>
             <option>Female</option>
@@ -172,7 +172,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
             type="number" 
             value={localProfile.weight} 
             onChange={(e) => handleChange('weight', parseInt(e.target.value))}
-            className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-lime-500 outline-none"
+            className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-[#f0dc7a] outline-none"
           />
         </div>
 
@@ -187,14 +187,14 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
                     placeholder="ft"
                     value={getFeet()} 
                     onChange={(e) => handleHeightStandardChange('ft', parseInt(e.target.value) || 0)}
-                    className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-lime-500 outline-none text-center"
+                    className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-[#f0dc7a] outline-none text-center"
                 />
                 <input 
                     type="number" 
                     placeholder="in"
                     value={getInches()} 
                     onChange={(e) => handleHeightStandardChange('in', parseInt(e.target.value) || 0)}
-                    className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-lime-500 outline-none text-center"
+                    className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-[#f0dc7a] outline-none text-center"
                 />
              </div>
           ) : (
@@ -202,7 +202,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
                 type="number" 
                 value={localProfile.height} 
                 onChange={(e) => handleChange('height', parseInt(e.target.value))}
-                className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-lime-500 outline-none"
+                className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-[#f0dc7a] outline-none"
             />
           )}
         </div>
@@ -213,7 +213,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
           <select 
             value={localProfile.fitnessLevel}
             onChange={(e) => handleChange('fitnessLevel', e.target.value)}
-            className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-lime-500 outline-none"
+            className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-[#f0dc7a] outline-none"
           >
             <option>Beginner (Toast is hard)</option>
             <option>Intermediate (Can follow recipes)</option>
@@ -226,13 +226,13 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
       <div className="space-y-4">
           <div>
             <label className="block text-slate-400 text-xs uppercase mb-1 flex items-center gap-1">
-               <Scale className="w-3 h-3 text-lime-400" /> Body Goals (comma separated)
+               <Scale className="w-3 h-3 text-[#f0dc7a]" /> Body Goals (comma separated)
             </label>
             <input 
               type="text" 
               value={rawGoals} 
               onChange={(e) => setRawGoals(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-lime-500 outline-none"
+              className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-[#f0dc7a] outline-none"
               placeholder="e.g. Muscle Gain, Fat Loss, Maintenance"
             />
           </div>
@@ -258,7 +258,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
               type="text" 
               value={rawMedical} 
               onChange={(e) => setRawMedical(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-lime-500 outline-none"
+              className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-[#f0dc7a] outline-none"
               placeholder="e.g. Vegan, Keto, Paleo"
             />
           </div>
@@ -271,7 +271,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
               type="text" 
               value={rawPreferences} 
               onChange={(e) => setRawPreferences(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-lime-500 outline-none"
+              className="w-full bg-slate-900 border border-slate-600 text-white rounded p-2 focus:border-[#f0dc7a] outline-none"
               placeholder="e.g. No Cilantro, Air Fryer, Blender"
             />
           </div>
@@ -293,7 +293,7 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
         </button>
         <button 
           onClick={handleSave}
-          className="bg-lime-500 hover:bg-lime-400 text-slate-900 px-6 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
+          className="bg-[#f0dc7a] hover:bg-[#f4e59c] text-slate-900 px-6 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
         >
           <Save className="w-4 h-4" /> Save Profile
         </button>

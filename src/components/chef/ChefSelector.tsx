@@ -12,8 +12,8 @@ export function ChefSelector({ onSelectChef, selectedChefId }: ChefSelectorProps
 
   if (chefs.length === 0) {
     return (
-      <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
-        <p className="text-yellow-400 text-sm">
+      <div className="bg-[#f0dc7a]/10 border border-[#f0dc7a]/20 rounded-lg p-4">
+        <p className="text-[#f0dc7a] text-sm">
           ⚠️ No AI chefs available. Check that VITE_GEMINI_API_KEY is configured.
         </p>
       </div>
@@ -23,7 +23,7 @@ export function ChefSelector({ onSelectChef, selectedChefId }: ChefSelectorProps
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <ChefHat className="w-5 h-5 text-lime-400" />
+        <ChefHat className="w-5 h-5 text-[#f0dc7a]" />
         <h3 className="text-lg font-semibold text-white">Choose Your AI Chef</h3>
       </div>
       
@@ -36,8 +36,8 @@ export function ChefSelector({ onSelectChef, selectedChefId }: ChefSelectorProps
               p-4 rounded-lg border-2 text-left transition-all
               ${
                 selectedChefId === chef.id
-                  ? 'border-lime-500 bg-lime-500/10 shadow-lg'
-                  : 'border-slate-700 bg-slate-800 hover:border-lime-400 hover:bg-slate-700'
+                  ? 'border-[#f0dc7a] bg-[#f0dc7a]/10 shadow-lg'
+                  : 'border-slate-700 bg-slate-800 hover:border-[#f4e59c] hover:bg-slate-700'
               }
             `}
           >

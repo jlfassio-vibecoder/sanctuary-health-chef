@@ -155,7 +155,7 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
   if (loading) {
     return (
         <div className="flex flex-col items-center justify-center py-20 text-slate-400">
-            <Loader2 className="w-10 h-10 animate-spin text-lime-500 mb-4" />
+            <Loader2 className="w-10 h-10 animate-spin text-[#f0dc7a] mb-4" />
             <p>Opening cookbook...</p>
         </div>
     );
@@ -239,7 +239,7 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
                     const fullRecipe = await getRecipeById(recipeId, true);
                     onLoadWorkout(fullRecipe || recipe);
                 }}
-                className="bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-lime-500/50 rounded-xl p-5 cursor-pointer transition-all hover:shadow-lg hover:shadow-lime-900/10 group relative"
+                className="bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-[#f0dc7a]/50 rounded-xl p-5 cursor-pointer transition-all hover:shadow-lg hover:shadow-[#807048]/10 group relative"
             >
                 {displayImageUrl && (
                     <div className="relative h-48 md:h-64 w-full bg-slate-800 shrink-0 -mx-5 -mt-5 mb-0">
@@ -251,7 +251,7 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
                         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-90"></div>
                         <div className="absolute bottom-4 left-6 right-6">
                             <div className="flex items-center gap-2 mb-2">
-                                <span className="bg-lime-500 text-slate-900 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded">
+                                <span className="bg-[#f0dc7a] text-slate-900 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded">
                                     {recipe.chefPersona}
                                 </span>
                             </div>
@@ -268,18 +268,18 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
                                         {recipe.chefPersona}
                                     </span>
                                     {recipe.cuisine && (
-                                        <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded bg-lime-900/30 text-lime-400 border border-lime-800/50`}>
+                                        <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded bg-[#807048]/30 text-[#f0dc7a] border border-[#9c8c53]/50`}>
                                             <Utensils className="w-3 h-3" />
                                             {recipe.cuisine}
                                         </span>
                                     )}
                                 </div>
-                                <h3 className="text-xl font-bold text-white mb-2 group-hover:text-lime-400 transition-colors">{recipe.title}</h3>
+                                <h3 className="text-xl font-bold text-white mb-2 group-hover:text-[#f0dc7a] transition-colors">{recipe.title}</h3>
                             </>
                         )}
                         {recipe.cuisine && displayImageUrl && (
                             <div className="flex flex-wrap items-center gap-2 mb-3 mt-4">
-                                <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded bg-lime-900/30 text-lime-400 border border-lime-800/50`}>
+                                <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded bg-[#807048]/30 text-[#f0dc7a] border border-[#9c8c53]/50`}>
                                     <Utensils className="w-3 h-3" />
                                     {recipe.cuisine}
                                 </span>
@@ -301,7 +301,7 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
                     <div className="flex flex-col gap-2 shrink-0">
                          <div className="flex items-center gap-6 text-sm bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
                             <div className="flex items-center gap-2 text-slate-300">
-                                <Clock className="w-4 h-4 text-lime-500" />
+                                <Clock className="w-4 h-4 text-[#f0dc7a]" />
                                 <span className="font-bold">{recipe.totalTime} min</span>
                             </div>
                             <div className="flex items-center gap-2 text-slate-300">
@@ -310,7 +310,7 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
                             </div>
                         </div>
                         
-                        <div className="hidden md:flex items-center justify-center w-full py-2 rounded-lg bg-slate-700/30 group-hover:bg-lime-500 group-hover:text-slate-900 transition-all font-bold text-xs uppercase tracking-wide mt-auto">
+                        <div className="hidden md:flex items-center justify-center w-full py-2 rounded-lg bg-slate-700/30 group-hover:bg-[#f0dc7a] group-hover:text-slate-900 transition-all font-bold text-xs uppercase tracking-wide mt-auto">
                             View Recipe <ArrowRight className="w-4 h-4 ml-1" />
                         </div>
                     </div>
@@ -333,7 +333,7 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
                 <p className="text-slate-500">No recipes found matching these filters.</p>
                 <button 
                   onClick={() => { setFilterCuisine('All'); setFilterChef('All'); }}
-                  className="mt-4 text-lime-400 text-sm hover:underline"
+                  className="mt-4 text-[#f0dc7a] text-sm hover:underline"
                 >
                   Clear Filters
                 </button>
