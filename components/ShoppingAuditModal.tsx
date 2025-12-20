@@ -56,7 +56,7 @@ export const ShoppingAuditModal: React.FC<Props> = ({ ingredients, userId, recip
         <div className="p-6 border-b border-slate-800 bg-slate-900 flex justify-between items-center">
           <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <ChefHat className="w-6 h-6 text-lime-400" /> Kitchen Audit
+              <ChefHat className="w-6 h-6 text-[#f0dc7a]" /> Kitchen Audit
             </h2>
             <p className="text-slate-400 text-sm mt-1">Check off what you already have.</p>
           </div>
@@ -69,7 +69,7 @@ export const ShoppingAuditModal: React.FC<Props> = ({ ingredients, userId, recip
         <div className="flex-grow overflow-y-auto p-4 custom-scrollbar bg-slate-950/30">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-10 text-slate-500 gap-3">
-              <Loader2 className="w-8 h-8 animate-spin text-lime-500" />
+              <Loader2 className="w-8 h-8 animate-spin text-[#f0dc7a]" />
               <p className="text-sm">Checking your pantry...</p>
             </div>
           ) : (
@@ -80,12 +80,12 @@ export const ShoppingAuditModal: React.FC<Props> = ({ ingredients, userId, recip
                     onClick={() => toggleItem(idx)}
                     className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all group ${
                         item.inStock 
-                        ? 'bg-slate-800/50 border-lime-500/30' 
+                        ? 'bg-slate-800/50 border-[#f0dc7a]/30' 
                         : 'bg-slate-800 border-slate-700 hover:border-slate-600'
                     }`}
                  >
                     <div className="flex items-center gap-4">
-                        <div className={`transition-colors ${item.inStock ? 'text-lime-400' : 'text-slate-600 group-hover:text-slate-400'}`}>
+                        <div className={`transition-colors ${item.inStock ? 'text-[#f0dc7a]' : 'text-slate-600 group-hover:text-slate-400'}`}>
                             {item.inStock ? <CheckSquare className="w-6 h-6" /> : <Square className="w-6 h-6" />}
                         </div>
                         <div>
@@ -100,7 +100,7 @@ export const ShoppingAuditModal: React.FC<Props> = ({ ingredients, userId, recip
                     
                     <div className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded ${
                         item.inStock 
-                        ? 'bg-lime-900/20 text-lime-500' 
+                        ? 'bg-[#807048]/20 text-[#f0dc7a]' 
                         : 'bg-orange-900/20 text-orange-500'
                     }`}>
                         {item.inStock ? 'Have it' : 'To Buy'}
@@ -114,14 +114,14 @@ export const ShoppingAuditModal: React.FC<Props> = ({ ingredients, userId, recip
         {/* Footer Actions */}
         <div className="p-6 border-t border-slate-800 bg-slate-900">
            <div className="flex justify-between items-center text-sm text-slate-400 mb-4 px-1">
-               <span>Pantry: <strong className="text-lime-400">{stats.have}</strong> items</span>
+               <span>Pantry: <strong className="text-[#f0dc7a]">{stats.have}</strong> items</span>
                <span>Shopping List: <strong className="text-orange-400">{stats.buy}</strong> items</span>
            </div>
 
            <button 
               onClick={handleConfirm}
               disabled={loading || committing}
-              className="w-full bg-lime-500 hover:bg-lime-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-900 font-bold py-3.5 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all"
+              className="w-full bg-[#f0dc7a] hover:bg-[#f4e59c] disabled:opacity-50 disabled:cursor-not-allowed text-slate-900 font-bold py-3.5 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all"
            >
               {committing ? (
                   <>

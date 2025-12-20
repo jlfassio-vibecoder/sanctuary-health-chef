@@ -112,7 +112,7 @@ export const ShoppingList: React.FC<Props> = ({ userId }) => {
       setLocationMap(prev => ({ ...prev, [itemName]: locationId }));
   };
 
-  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-lime-500" /></div>;
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-[#f0dc7a]" /></div>;
 
   // --- CHECKOUT MODAL ---
   if (isCheckingOut) {
@@ -123,7 +123,7 @@ export const ShoppingList: React.FC<Props> = ({ userId }) => {
             <div className="bg-slate-900 w-full max-w-lg rounded-2xl border border-slate-700 shadow-2xl flex flex-col max-h-[85vh]">
                 <div className="p-6 border-b border-slate-800">
                     <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                        <Layers className="w-6 h-6 text-lime-400" />
+                        <Layers className="w-6 h-6 text-[#f0dc7a]" />
                         Sorting Groceries
                     </h2>
                     <p className="text-slate-400 text-sm mt-1">
@@ -134,7 +134,7 @@ export const ShoppingList: React.FC<Props> = ({ userId }) => {
                 <div className="flex-grow overflow-y-auto p-4 custom-scrollbar">
                     {isSorting ? (
                         <div className="flex flex-col items-center justify-center h-40 gap-4">
-                            <Loader2 className="w-8 h-8 animate-spin text-lime-500" />
+                            <Loader2 className="w-8 h-8 animate-spin text-[#f0dc7a]" />
                             <p className="text-slate-400 text-sm animate-pulse">AI is organizing your bags...</p>
                         </div>
                     ) : (
@@ -146,7 +146,7 @@ export const ShoppingList: React.FC<Props> = ({ userId }) => {
                                     <select 
                                         value={locationMap[item.name] || ''}
                                         onChange={(e) => updateLocationMap(item.name, e.target.value)}
-                                        className="bg-slate-900 border border-slate-600 text-slate-300 text-sm rounded-lg px-2 py-1 outline-none focus:border-lime-500"
+                                        className="bg-slate-900 border border-slate-600 text-slate-300 text-sm rounded-lg px-2 py-1 outline-none focus:border-[#f0dc7a]"
                                     >
                                         {locations.map(loc => (
                                             <option key={loc.id} value={loc.id}>{loc.name}</option>
@@ -168,7 +168,7 @@ export const ShoppingList: React.FC<Props> = ({ userId }) => {
                     <button 
                         onClick={handleFinishCheckout}
                         disabled={isSorting}
-                        className="flex-[2] bg-lime-500 hover:bg-lime-400 text-slate-900 font-bold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50"
+                        className="flex-[2] bg-[#f0dc7a] hover:bg-[#f4e59c] text-slate-900 font-bold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50"
                     >
                         Confirm & Put Away
                     </button>
@@ -184,7 +184,7 @@ export const ShoppingList: React.FC<Props> = ({ userId }) => {
       <div className="flex items-center justify-between mb-6">
         <div>
            <h2 className="text-3xl font-bold text-white flex items-center gap-2">
-              <ShoppingCart className="w-8 h-8 text-lime-500" /> Shopping List
+              <ShoppingCart className="w-8 h-8 text-[#f0dc7a]" /> Shopping List
            </h2>
            <p className="text-slate-400">Check items off as you shop.</p>
         </div>
@@ -192,7 +192,7 @@ export const ShoppingList: React.FC<Props> = ({ userId }) => {
         {items.some(i => i.isChecked) && (
             <button 
                onClick={handleCheckoutStart}
-               className="bg-lime-500 hover:bg-lime-400 text-slate-900 px-4 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:scale-105 transition-all"
+               className="bg-[#f0dc7a] hover:bg-[#f4e59c] text-slate-900 px-4 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:scale-105 transition-all"
             >
                Done Shopping <ArrowRight className="w-4 h-4" />
             </button>
@@ -213,14 +213,14 @@ export const ShoppingList: React.FC<Props> = ({ userId }) => {
                     onClick={() => handleToggle(item.id, item.isChecked)}
                     className={`p-4 rounded-xl border flex items-center gap-4 cursor-pointer transition-all group ${
                         item.isChecked 
-                        ? 'bg-lime-900/10 border-lime-500/20 opacity-75' 
-                        : 'bg-slate-800 border-slate-700 hover:border-lime-500/50'
+                        ? 'bg-[#807048]/10 border-[#f0dc7a]/20 opacity-75' 
+                        : 'bg-slate-800 border-slate-700 hover:border-[#f0dc7a]/50'
                     }`}
                   >
                      <div className={`w-6 h-6 rounded-md border flex items-center justify-center transition-colors ${
                          item.isChecked 
-                         ? 'bg-lime-500 border-lime-500' 
-                         : 'border-slate-500 group-hover:border-lime-400'
+                         ? 'bg-[#f0dc7a] border-[#f0dc7a]' 
+                         : 'border-slate-500 group-hover:border-[#f4e59c]'
                      }`}>
                          {item.isChecked && <Check className="w-4 h-4 text-slate-900" />}
                      </div>

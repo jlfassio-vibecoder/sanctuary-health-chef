@@ -92,7 +92,7 @@ export const KitchenManager: React.FC<Props> = ({ userId }) => {
     if (n.includes('fridge')) return <Refrigerator className="w-5 h-5 text-cyan-400" />;
     if (n.includes('freezer')) return <IceCream className="w-5 h-5 text-blue-300" />;
     if (n.includes('spice')) return <Flame className="w-5 h-5 text-orange-400" />;
-    return <Box className="w-5 h-5 text-amber-600" />;
+    return <Box className="w-5 h-5 text-[#d4c469]" />;
   };
 
   // Group items by location
@@ -107,14 +107,14 @@ export const KitchenManager: React.FC<Props> = ({ userId }) => {
 
   const sortedLocations = Object.keys(groupedItems).sort();
 
-  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-lime-500" /></div>;
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-[#f0dc7a]" /></div>;
 
   return (
     <div className="animate-in fade-in duration-500 pb-20">
        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
            <div>
                <h2 className="text-3xl font-bold text-white flex items-center gap-2">
-                   <Archive className="w-8 h-8 text-lime-500" /> Kitchen Staples
+                   <Archive className="w-8 h-8 text-[#f0dc7a]" /> Kitchen Staples
                </h2>
                <p className="text-slate-400">Track what you have. Depleting an item adds it to your Shopping List.</p>
            </div>
@@ -126,7 +126,7 @@ export const KitchenManager: React.FC<Props> = ({ userId }) => {
                  placeholder="Search pantry..." 
                  value={searchTerm}
                  onChange={(e) => setSearchTerm(e.target.value)}
-                 className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-white focus:border-lime-500 outline-none"
+                 className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-white focus:border-[#f0dc7a] outline-none"
                />
            </div>
        </div>
@@ -167,7 +167,7 @@ export const KitchenManager: React.FC<Props> = ({ userId }) => {
                                            value={item.locationId || ''}
                                            onChange={(e) => handleLocationChange(item.id, e.target.value)}
                                            disabled={processingId === item.id}
-                                           className="text-xs bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-300 hover:border-slate-600 focus:border-lime-500 outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                           className="text-xs bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-300 hover:border-slate-600 focus:border-[#f0dc7a] outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                            title="Change storage location"
                                        >
                                            <option value="">Unsorted</option>
@@ -187,8 +187,8 @@ export const KitchenManager: React.FC<Props> = ({ userId }) => {
                                           disabled={processingId === item.id}
                                           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
                                               item.inStock 
-                                              ? 'bg-lime-500/10 border-lime-500/50 text-lime-400 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/50' 
-                                              : 'bg-slate-800 border-slate-700 text-slate-500 hover:bg-lime-500/10 hover:text-lime-400'
+                                              ? 'bg-[#f0dc7a]/10 border-[#f0dc7a]/50 text-[#f0dc7a] hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/50' 
+                                              : 'bg-slate-800 border-slate-700 text-slate-500 hover:bg-[#f0dc7a]/10 hover:text-[#f0dc7a]'
                                           }`}
                                           title={item.inStock ? "Click to Consume (Out of Stock)" : "Restock"}
                                        >

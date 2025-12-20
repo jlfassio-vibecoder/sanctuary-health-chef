@@ -147,7 +147,7 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
       <div className="p-6 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
         <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Utensils className="w-5 h-5 text-lime-400" /> Meal Planner
+            <Utensils className="w-5 h-5 text-[#f0dc7a]" /> Meal Planner
             </h2>
             <p className="text-slate-400 text-sm mt-1">What are you in the mood for today?</p>
         </div>
@@ -156,13 +156,13 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
             onClick={handleFetchWorkouts}
             className="flex items-center gap-2 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-600 px-3 py-2 rounded-lg transition-colors text-slate-300"
         >
-            <Dumbbell className="w-4 h-4 text-lime-400" /> Import Workout
+            <Dumbbell className="w-4 h-4 text-[#f0dc7a]" /> Import Workout
         </button>
       </div>
       
       {importedContext && (
-         <div className="bg-lime-500/10 border-b border-lime-500/20 px-6 py-2 flex items-center justify-between">
-             <span className="text-xs text-lime-400 font-bold flex items-center gap-2">
+         <div className="bg-[#f0dc7a]/10 border-b border-[#f0dc7a]/20 px-6 py-2 flex items-center justify-between">
+             <span className="text-xs text-[#f0dc7a] font-bold flex items-center gap-2">
                  <Dumbbell className="w-3 h-3" /> Context: {importedContext}
              </span>
              <button onClick={() => { setImportedContext(null); setCravings(''); }} className="text-slate-500 hover:text-white"><XCircle className="w-4 h-4" /></button>
@@ -189,7 +189,7 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
                             className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 p-4 rounded-xl text-left transition-colors flex justify-between items-center group"
                         >
                             <div>
-                                <div className="font-bold text-white group-hover:text-lime-400 transition-colors">{w.title}</div>
+                                <div className="font-bold text-white group-hover:text-[#f0dc7a] transition-colors">{w.title}</div>
                                 <div className="text-xs text-slate-500 mt-1">{new Date(w.created_at).toLocaleDateString()} • {w.total_duration} mins</div>
                             </div>
                             <span className="text-xs bg-slate-900 px-2 py-1 rounded text-slate-400 border border-slate-800">Select</span>
@@ -234,7 +234,7 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
 
         {/* Focus Selector */}
         <div className="bg-slate-900/50 p-6 rounded-xl border border-slate-700">
-           <label className="block text-lime-400 font-bold mb-3 flex items-center gap-2">
+           <label className="block text-[#f0dc7a] font-bold mb-3 flex items-center gap-2">
              <ChefHat className="w-5 h-5" />
              Cuisine / Style
            </label>
@@ -246,7 +246,7 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
                   onClick={() => setSelectedFocus(option)}
                   className={`px-3 py-2 rounded-lg text-sm font-medium transition-all text-left ${
                     selectedFocus === option
-                      ? 'bg-lime-500 text-slate-900 shadow-md'
+                      ? 'bg-[#f0dc7a] text-slate-900 shadow-md'
                       : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
                   }`}
                 >
@@ -261,12 +261,12 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
           <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
             <label className="flex items-center justify-between text-slate-300 mb-2">
               <span className="flex items-center gap-2"><Clock className="w-4 h-4" /> Time Available</span>
-              <span className="text-lime-400 font-bold">{duration}m</span>
+              <span className="text-[#f0dc7a] font-bold">{duration}m</span>
             </label>
             <input 
               type="range" min="15" max="120" step="5"
               value={duration} onChange={(e) => setDuration(Number(e.target.value))}
-              className="w-full accent-lime-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
+              className="w-full accent-[#f0dc7a] h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
             />
           </div>
 
@@ -304,7 +304,7 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
               value={cravings}
               onChange={(e) => setCravings(e.target.value)}
               placeholder="e.g. Something spicy, Pasta"
-              className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg p-3 focus:border-lime-500 outline-none"
+              className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg p-3 focus:border-[#f0dc7a] outline-none"
             />
           </div>
           <div>
@@ -314,7 +314,7 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
               value={pantry}
               onChange={(e) => setPantry(e.target.value)}
               placeholder="e.g. Chicken thighs, Spinach"
-              className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg p-3 focus:border-lime-500 outline-none"
+              className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg p-3 focus:border-[#f0dc7a] outline-none"
             />
           </div>
         </div>
@@ -322,7 +322,7 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
         <button 
           disabled={isLoading}
           type="submit"
-          className="w-full bg-gradient-to-r from-lime-500 to-green-600 hover:from-lime-400 hover:to-green-500 text-slate-900 font-bold py-4 rounded-xl shadow-lg transform transition-all hover:scale-[1.01] flex items-center justify-center gap-2 disabled:opacity-90 disabled:cursor-wait"
+          className="w-full bg-gradient-to-r from-[#f0dc7a] to-[#d4c469] hover:from-[#f4e59c] hover:to-[#e6d185] text-slate-900 font-bold py-4 rounded-xl shadow-lg transform transition-all hover:scale-[1.01] flex items-center justify-center gap-2 disabled:opacity-90 disabled:cursor-wait"
         >
           {isLoading ? (
             <>

@@ -195,8 +195,8 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                           <div className="w-full h-full flex items-center justify-center bg-slate-800 text-slate-500">
                                {isImageLoading ? (
                                    <div className="flex flex-col items-center gap-2">
-                                       <Loader2 className="w-8 h-8 animate-spin text-lime-500" />
-                                       <span className="text-xs font-medium uppercase tracking-widest text-lime-500/80">Plating Dish...</span>
+                                       <Loader2 className="w-8 h-8 animate-spin text-[#f0dc7a]" />
+                                       <span className="text-xs font-medium uppercase tracking-widest text-[#f0dc7a]/80">Plating Dish...</span>
                                    </div>
                                ) : (
                                    <div className="flex flex-col items-center gap-2">
@@ -209,7 +209,7 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                       <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-90"></div>
                       <div className="absolute bottom-4 left-6 right-6">
                            <div className="flex items-center gap-2 mb-2">
-                               <span className="bg-lime-500 text-slate-900 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded">
+                               <span className="bg-[#f0dc7a] text-slate-900 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded">
                                    {localRecipe.chefPersona}
                                </span>
                            </div>
@@ -236,7 +236,7 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                           {serves && (
                               <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 col-span-2 flex justify-between items-center px-6">
                                   <span className="text-slate-500 text-xs font-bold uppercase">Serves</span>
-                                  <span className="text-xl font-bold text-lime-400">{serves}</span>
+                                  <span className="text-xl font-bold text-[#f0dc7a]">{serves}</span>
                               </div>
                           )}
                           {/* Fallback to original metrics if Overview items are not available */}
@@ -252,7 +252,7 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                                   </div>
                                   <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 col-span-2 flex justify-between items-center px-6">
                                       <span className="text-slate-500 text-xs font-bold uppercase">Difficulty</span>
-                                      <span className="text-xl font-bold text-lime-400">{localRecipe.difficulty}</span>
+                                      <span className="text-xl font-bold text-[#f0dc7a]">{localRecipe.difficulty}</span>
                                   </div>
                               </>
                           )}
@@ -267,8 +267,8 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
               <div className="flex flex-col h-full p-2 md:p-6">
                   <div className="flex items-center justify-between gap-3 mb-6 border-b border-slate-800 pb-4">
                       <div className="flex items-center gap-3">
-                        <div className="p-3 bg-lime-500/10 rounded-xl">
-                            <Utensils className="w-8 h-8 text-lime-400" />
+                        <div className="p-3 bg-[#f0dc7a]/10 rounded-xl">
+                            <Utensils className="w-8 h-8 text-[#f0dc7a]" />
                         </div>
                         <div>
                             <h2 className="text-2xl md:text-3xl font-black text-white">{data.title}</h2>
@@ -279,7 +279,7 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                       {/* Add To Shopping List Button */}
                       <button 
                         onClick={() => setShowAudit(true)}
-                        className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-lime-400 border border-slate-700 p-3 rounded-xl transition-all shadow-sm"
+                        className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-[#f0dc7a] border border-slate-700 p-3 rounded-xl transition-all shadow-sm"
                         title="Add to Shopping List"
                       >
                           <ShoppingCart className="w-6 h-6" />
@@ -290,8 +290,8 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                       {(data.ingredients && data.ingredients.length > 0) ? (
                         <ul className="space-y-3">
                             {data.ingredients.map((ing, i) => (
-                                <li key={i} className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-800 hover:border-lime-500/30 transition-colors">
-                                    <div className="mt-1 w-2 h-2 rounded-full bg-lime-500 shrink-0" />
+                                <li key={i} className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-800 hover:border-[#f0dc7a]/30 transition-colors">
+                                    <div className="mt-1 w-2 h-2 rounded-full bg-[#f0dc7a] shrink-0" />
                                     <div>
                                         <span className="text-slate-200 text-lg leading-relaxed font-medium">{ing.item}</span>
                                         <div className="text-sm text-slate-500">{ing.quantity} {ing.unit} • {ing.prep}</div>
@@ -303,8 +303,8 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                          // Fallback for legacy recipes without structured ingredients
                          <ul className="space-y-3">
                             {data.items.map((ingredient, i) => (
-                                <li key={i} className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-800 hover:border-lime-500/30 transition-colors">
-                                    <div className="mt-1 w-2 h-2 rounded-full bg-lime-500 shrink-0" />
+                                <li key={i} className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-800 hover:border-[#f0dc7a]/30 transition-colors">
+                                    <div className="mt-1 w-2 h-2 rounded-full bg-[#f0dc7a] shrink-0" />
                                     <span className="text-slate-200 text-lg leading-relaxed">{ingredient}</span>
                                 </li>
                             ))}
@@ -325,7 +325,7 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
           <div className="flex flex-col h-full p-2 md:p-6">
               <div className="flex items-center gap-3 mb-6 border-b border-slate-800 pb-4">
                    <div className="flex flex-col">
-                       <span className="text-xs text-lime-400 font-bold uppercase tracking-wider">Instruction</span>
+                       <span className="text-xs text-[#f0dc7a] font-bold uppercase tracking-wider">Instruction</span>
                        <h2 className="text-2xl md:text-3xl font-black text-white leading-tight">{data.title}</h2>
                    </div>
               </div>
@@ -343,7 +343,7 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                    <div className="grid grid-cols-2 gap-4">
                        {data.metadata?.timer && (
                            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex items-center gap-3">
-                               <Timer className="w-6 h-6 text-lime-500" />
+                               <Timer className="w-6 h-6 text-[#f0dc7a]" />
                                <div>
                                    <span className="block text-slate-500 text-xs uppercase font-bold">Timer</span>
                                    <span className="text-white font-bold">{data.metadata.timer}</span>
@@ -382,8 +382,8 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
               disabled={isSaving}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all shadow-lg ml-auto ${
                   hasSaved 
-                  ? 'bg-slate-900/50 text-lime-400 border border-lime-500/50' 
-                  : 'bg-lime-500 text-slate-900 hover:bg-lime-400'
+                  ? 'bg-slate-900/50 text-[#f0dc7a] border border-[#f0dc7a]/50' 
+                  : 'bg-[#f0dc7a] text-slate-900 hover:bg-[#f4e59c]'
               }`}
            >
               {isSaving ? 'Saving...' : hasSaved ? 'Saved to Cookbook' : 'Save Recipe'}
@@ -397,17 +397,17 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
             disabled={currentStepIndex === 0}
             className="p-3 rounded-full hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition-all hidden md:block"
           >
-            <ChevronLeft className="w-10 h-10 text-lime-400" />
+            <ChevronLeft className="w-10 h-10 text-[#f0dc7a]" />
           </button>
 
           <div className="w-full max-w-2xl h-full bg-slate-900 rounded-3xl p-1 shadow-2xl border border-slate-700 relative flex flex-col">
-             <div className="absolute -inset-0.5 bg-gradient-to-br from-lime-500 to-green-600 rounded-3xl opacity-20 blur-sm pointer-events-none"></div>
+             <div className="absolute -inset-0.5 bg-gradient-to-br from-[#f0dc7a] to-[#d4c469] rounded-3xl opacity-20 blur-sm pointer-events-none"></div>
              <div className="relative bg-slate-950 rounded-[22px] overflow-hidden h-full flex flex-col">
                  <div className="h-1 bg-slate-900 w-full flex shrink-0">
                      {displaySteps.map((_, idx) => (
                          <div 
                            key={idx}
-                           className={`h-full flex-1 transition-all duration-300 ${idx <= currentStepIndex ? 'bg-lime-500' : 'bg-slate-800'} ${idx > 0 ? 'border-l border-slate-950' : ''}`}
+                           className={`h-full flex-1 transition-all duration-300 ${idx <= currentStepIndex ? 'bg-[#f0dc7a]' : 'bg-slate-800'} ${idx > 0 ? 'border-l border-slate-950' : ''}`}
                          />
                      ))}
                  </div>
@@ -417,7 +417,7 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                          <div className="flex flex-col items-center justify-center h-full text-slate-500 p-8 text-center">
                             <AlertTriangle className="w-12 h-12 mb-4 text-orange-500" />
                             <p>Recipe content incomplete.</p>
-                            <button onClick={() => window.location.reload()} className="flex items-center gap-2 text-lime-400 hover:text-lime-300 mt-4">
+                            <button onClick={() => window.location.reload()} className="flex items-center gap-2 text-[#f0dc7a] hover:text-[#f4e59c] mt-4">
                                 <RefreshCw className="w-4 h-4" /> Reload App
                             </button>
                          </div>
@@ -431,7 +431,7 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
             disabled={currentStepIndex === displaySteps.length - 1}
             className="p-3 rounded-full hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition-all hidden md:block"
           >
-            <ChevronRight className="w-10 h-10 text-lime-400" />
+            <ChevronRight className="w-10 h-10 text-[#f0dc7a]" />
           </button>
       </div>
       
