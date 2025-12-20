@@ -929,21 +929,29 @@ export const moveShoppingToInventory = async (
       });
     });
 
-    // Fetch existing inventory items first (batch query)
+    // Fetch existing inventory items first (batched query - Firestore allows max 10 items per 'in' query)
+    // Processes all ingredient names in batches of 10 to handle any number of items
     const ingredientNames = Array.from(uniqueItems.values()).map(item => item.ingredient_name);
     const inventoryRef = collection(db, 'user_inventory');
-    const inventoryQuery = query(
-      inventoryRef,
-      where('user_id', '==', userId),
-      where('ingredient_name', 'in', ingredientNames.length > 10 ? ingredientNames.slice(0, 10) : ingredientNames)
-    );
-    const inventorySnapshot = await getDocs(inventoryQuery);
-
     const existingInventoryMap = new Map<string, any>();
-    inventorySnapshot.docs.forEach(doc => {
-      const data = doc.data();
-      existingInventoryMap.set(data.ingredient_name.toLowerCase(), { ...data, id: doc.id });
-    });
+    
+    if (ingredientNames.length > 0) {
+      const batchSize = 10;
+      for (let i = 0; i < ingredientNames.length; i += batchSize) {
+        const batch = ingredientNames.slice(i, i + batchSize);
+        const inventoryQuery = query(
+          inventoryRef,
+          where('user_id', '==', userId),
+          where('ingredient_name', 'in', batch)
+        );
+        const inventorySnapshot = await getDocs(inventoryQuery);
+        
+        inventorySnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          existingInventoryMap.set(data.ingredient_name.toLowerCase(), { ...data, id: doc.id });
+        });
+      }
+    }
 
     const batch = writeBatch(db);
 

@@ -15,6 +15,7 @@ import { doc, getDoc, deleteDoc } from 'firebase/firestore';
 export interface FirebaseSSOTokenData {
   user_id: string;
   id_token?: string;
+  custom_token?: string; // Firebase custom token for client-side authentication
   expires_at: string;
 }
 
@@ -83,6 +84,7 @@ export async function exchangeFirebaseSSOToken(
     return {
       user_id: tokenData.user_id,
       id_token: tokenData.id_token,
+      custom_token: tokenData.custom_token, // Custom token for Firebase Auth (if provided by Hub)
       expires_at: expiresAt.toISOString(),
     };
   } catch (error) {

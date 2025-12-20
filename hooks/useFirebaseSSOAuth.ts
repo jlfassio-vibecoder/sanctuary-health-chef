@@ -44,20 +44,26 @@ export function useFirebaseSSOAuth(): UseFirebaseSSOAuthResult {
             if (tokenData) {
               console.log('SSO token exchanged, user_id:', tokenData.user_id);
               
-              // Note: Firebase Auth doesn't support setting session from ID token on client
-              // You'll need to use Firebase Custom Tokens (server-side) or verify the token
-              // For now, we'll use the ID token to authenticate
-              // In production, implement server-side custom token generation
-              
-              // TODO: Implement proper Firebase Auth session establishment
-              // This may require a server endpoint that verifies the ID token and returns a custom token
-              // For now, the user_id is available but we need to establish a Firebase Auth session
-              // Option A: Create server endpoint that returns custom token, then use:
-              // const customToken = await fetchCustomTokenFromServer(tokenData.id_token);
-              // await signInWithCustomToken(auth, customToken);
-              
-              // Option B: Use ID token for Firestore access (less secure, not recommended for production)
-              // The Firestore rules would need to allow access based on the ID token
+              // Establish Firebase Auth session using custom token if available
+              if (tokenData.custom_token) {
+                try {
+                  console.log('🔐 Establishing Firebase Auth session with custom token...');
+                  const userCredential = await signInWithCustomToken(auth, tokenData.custom_token);
+                  console.log('✅ Firebase Auth session established:', userCredential.user.email);
+                  // onAuthStateChanged will update the user state automatically
+                } catch (customTokenError) {
+                  console.error('❌ Failed to sign in with custom token:', customTokenError);
+                  setError(customTokenError instanceof Error ? customTokenError : new Error('Failed to establish Firebase Auth session'));
+                }
+              } else {
+                // No custom token available - this is a known limitation
+                // The Hub should provide a custom_token in the SSO token data for production use
+                // Without it, we cannot establish a Firebase Auth session on the client side
+                console.warn('⚠️ SSO token does not include custom_token. Firebase Auth session cannot be established.');
+                console.warn('⚠️ This is a known limitation. For production, the Hub must provide a custom_token.');
+                console.warn('⚠️ Alternative: Implement a server endpoint that verifies the ID token and returns a custom token.');
+                setError(new Error('SSO authentication incomplete: custom_token not provided. Server-side custom token generation required.'));
+              }
             }
           }
         } catch (err) {
