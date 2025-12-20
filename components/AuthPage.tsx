@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { supabase } from '../services/dbService';
+import { auth } from '../src/lib/firebase';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { ChefHat, Loader2, Mail, Lock, ArrowRight, AlertTriangle } from 'lucide-react';
 
 export const AuthPage: React.FC = () => {
@@ -13,18 +14,8 @@ export const AuthPage: React.FC = () => {
     setLoading(true);
     setError(null);
 
-    if (!supabase) {
-        setError("Database connection not initialized. Please check your connection.");
-        setLoading(false);
-        return;
-    }
-
     try {
-        const { error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        });
-        if (error) throw error;
+        await signInWithEmailAndPassword(auth, email, password);
     } catch (err: any) {
         setError(err.message || "Authentication failed");
     } finally {
@@ -38,10 +29,10 @@ export const AuthPage: React.FC = () => {
         
         {/* Logo Header */}
         <div className="text-center mb-8">
-            <div className="bg-lime-500 w-16 h-16 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-lime-900/50 mb-4 transform rotate-3 hover:rotate-6 transition-transform">
+            <div className="bg-[#f0dc7a] w-16 h-16 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-[#f0dc7a]/50 mb-4 transform rotate-3 hover:rotate-6 transition-transform">
                 <ChefHat className="text-slate-900 w-10 h-10" />
             </div>
-            <h1 className="text-3xl font-bold text-white tracking-tight">Fit<span className="text-lime-400">copilot</span> Chef</h1>
+            <h1 className="text-3xl font-bold text-white tracking-tight">Sanctuary <span className="text-[#f0dc7a]">Health</span> Chef</h1>
             <p className="text-slate-400 mt-2">Your AI-powered personal culinary nutritionist.</p>
         </div>
 
@@ -69,7 +60,7 @@ export const AuthPage: React.FC = () => {
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             placeholder="chef@example.com"
-                            className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl pl-10 pr-4 py-3 focus:border-lime-500 outline-none transition-colors"
+                            className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl pl-10 pr-4 py-3 focus:border-[#f0dc7a] outline-none transition-colors"
                         />
                     </div>
                 </div>
@@ -85,7 +76,7 @@ export const AuthPage: React.FC = () => {
                             onChange={(e) => setPassword(e.target.value)}
                             placeholder="••••••••"
                             minLength={6}
-                            className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl pl-10 pr-4 py-3 focus:border-lime-500 outline-none transition-colors"
+                            className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl pl-10 pr-4 py-3 focus:border-[#f0dc7a] outline-none transition-colors"
                         />
                     </div>
                 </div>
@@ -93,7 +84,7 @@ export const AuthPage: React.FC = () => {
                 <button 
                     type="submit"
                     disabled={loading}
-                    className="w-full bg-lime-500 hover:bg-lime-400 text-slate-900 font-bold py-4 rounded-xl shadow-lg shadow-lime-900/20 transform transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed mt-2"
+                    className="w-full bg-[#f0dc7a] hover:bg-[#f4e59c] text-slate-900 font-bold py-4 rounded-xl shadow-lg shadow-[#f0dc7a]/20 transform transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed mt-2"
                 >
                     {loading ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
@@ -107,12 +98,12 @@ export const AuthPage: React.FC = () => {
 
             <div className="mt-6 pt-6 border-t border-slate-800 text-center">
                 <p className="text-slate-400 text-sm">
-                    New to FitCopilot?{' '}
+                    New to Sanctuary Health?{' '}
                     <a 
-                        href="https://generateworkout.app"
+                        href="https://sanctuary-health.web.app"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-lime-400 font-bold hover:underline"
+                        className="text-[#f0dc7a] font-bold hover:underline"
                     >
                         Create an account at the Hub
                     </a>

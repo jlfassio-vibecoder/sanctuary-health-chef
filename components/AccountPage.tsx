@@ -1,14 +1,16 @@
 import React from 'react';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
+import type { User } from 'firebase/auth';
 import { UserProfile } from '../types';
 import { ProfileSetup } from './ProfileSetup';
 import AccountInformation from './AccountInformation';
-import { LogOut, User, Mail, ShieldCheck } from 'lucide-react';
-import { supabase } from '../services/dbService';
+import { LogOut, Mail, ShieldCheck } from 'lucide-react';
+import { User as UserIcon } from 'lucide-react';
+import { auth } from '../src/lib/firebase';
+import { signOut } from 'firebase/auth';
 
 interface Props {
     userEmail?: string;
-    user?: SupabaseUser | null;
+    user?: User | null;
     profile: UserProfile;
     onSaveProfile: (p: UserProfile) => void;
 }
@@ -17,10 +19,8 @@ export const AccountPage: React.FC<Props> = ({ userEmail, user, profile, onSaveP
     const handleSignOut = async () => {
         console.log('🔐 AccountPage: Signing out...');
         
-        // Sign out from Supabase
-        if (supabase) {
-            await supabase.auth.signOut();
-        }
+        // Sign out from Firebase
+        await signOut(auth);
         
         // Reload to reset app state
         window.location.reload();
@@ -40,12 +40,12 @@ export const AccountPage: React.FC<Props> = ({ userEmail, user, profile, onSaveP
                 <div className="p-6 border-b border-slate-700 flex flex-col md:flex-row justify-between items-center gap-6">
                     <div className="flex items-center gap-4">
                         <div className="w-16 h-16 bg-slate-700 rounded-full flex items-center justify-center border-4 border-slate-800 shadow-xl">
-                            <User className="w-8 h-8 text-slate-300" />
+                            <UserIcon className="w-8 h-8 text-slate-300" />
                         </div>
                         <div>
                             <div className="flex items-center gap-2 mb-1">
                                 <h3 className="text-xl font-bold text-white">My Account</h3>
-                                <span className="bg-lime-500/10 text-lime-400 text-[10px] uppercase font-bold px-2 py-0.5 rounded border border-lime-500/20">Active</span>
+                                <span className="bg-[#f0dc7a]/10 text-[#f0dc7a] text-[10px] uppercase font-bold px-2 py-0.5 rounded border border-[#f0dc7a]/20">Active</span>
                             </div>
                             <div className="flex items-center gap-2 text-slate-400 text-sm">
                                 <Mail className="w-3 h-3" /> {userEmail || 'No email found'}

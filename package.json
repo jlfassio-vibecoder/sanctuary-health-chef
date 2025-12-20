@@ -1,5 +1,5 @@
 {
-  "name": "fitcopilot-chef",
+  "name": "sanctuary-health-chef",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -17,7 +17,7 @@
   "dependencies": {
     "@google/genai": "^1.30.0",
     "@google/generative-ai": "^0.24.1",
-    "@supabase/supabase-js": "2.39.7",
+    "firebase": "^11.1.0",
     "json5": "2.2.3",
     "lucide-react": "^0.555.0",
     "react": "^19.2.0",
