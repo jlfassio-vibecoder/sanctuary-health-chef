@@ -30,49 +30,54 @@ export function useFirebaseSSOAuth(): UseFirebaseSSOAuthResult {
       // If no session, check for SSO token
       if (!auth.currentUser) {
         try {
+          console.log('🔍 useFirebaseSSOAuth: Checking for SSO token...');
           const token = getSSOTokenFromUrl();
+          console.log('🔍 useFirebaseSSOAuth: Token result:', token ? `Found (length: ${token.length})` : 'Not found');
           
           if (token) {
-            // Remove token from URL
-            const url = new URL(window.location.href);
-            url.searchParams.delete('sso_token');
-            window.history.replaceState({}, document.title, url.toString());
-
-            // Exchange token for Firebase ID token
-            const tokenData = await exchangeFirebaseSSOToken(token);
-            
-            if (tokenData) {
-              console.log('SSO token exchanged, user_id:', tokenData.user_id);
-              
-              // Establish Firebase Auth session using custom token if available
-              if (tokenData.custom_token) {
-                try {
-                  console.log('🔐 Establishing Firebase Auth session with custom token...');
-                  const userCredential = await signInWithCustomToken(auth, tokenData.custom_token);
-                  console.log('✅ Firebase Auth session established:', userCredential.user.email);
-                  // onAuthStateChanged will update the user state automatically
-                } catch (customTokenError) {
-                  console.error('❌ Failed to sign in with custom token:', customTokenError);
-                  setError(customTokenError instanceof Error ? customTokenError : new Error('Failed to establish Firebase Auth session'));
+            console.log('✅ useFirebaseSSOAuth: Token found, proceeding with exchange...');
+            // Exchange SSO exchange token for custom token
+            let tokenData;
+            try {
+              tokenData = await exchangeFirebaseSSOToken(token);
+            } catch (exchangeError) {
+              // Handle exchange errors with specific messages
+              if (exchangeError instanceof Error) {
+                if (exchangeError.message.includes('Invalid or expired')) {
+                  throw new Error('SSO token is invalid or has expired. Please return to the Hub and try again.');
+                } else if (exchangeError.message.includes('Server error')) {
+                  throw new Error('Unable to verify SSO token. Please try again later.');
                 }
-              } else {
-                // No custom token available - this is a known limitation
-                // The Hub should provide a custom_token in the SSO token data for production use
-                // Without it, we cannot establish a Firebase Auth session on the client side
-                console.warn('⚠️ SSO token does not include custom_token. Firebase Auth session cannot be established.');
-                console.warn('⚠️ This is a known limitation. For production, the Hub must provide a custom_token.');
-                console.warn('⚠️ Alternative: Implement a server endpoint that verifies the ID token and returns a custom token.');
-                setError(new Error('SSO authentication incomplete: custom_token not provided. Server-side custom token generation required.'));
               }
+              throw exchangeError;
             }
+            
+            console.log('✅ SSO token exchanged, user_id:', tokenData.user_id);
+            
+            // Sign in with the custom token to establish Firebase Auth session
+            try {
+              console.log('🔐 Establishing Firebase Auth session with custom token...');
+              const userCredential = await signInWithCustomToken(auth, tokenData.custom_token);
+              console.log('✅ Firebase Auth session established:', userCredential.user.email);
+              // onAuthStateChanged will update the user state automatically
+            } catch (signInError) {
+              console.error('❌ Failed to sign in with custom token:', signInError);
+              throw new Error('Failed to authenticate. Please return to the Hub and try again.');
+            }
+          } else {
+            console.log('ℹ️ useFirebaseSSOAuth: No SSO token found, user needs to authenticate via Hub');
           }
         } catch (err) {
-          setError(err instanceof Error ? err : new Error('SSO authentication failed'));
-          console.error('SSO auth error:', err);
+          const errorMessage = err instanceof Error 
+            ? err.message 
+            : 'Authentication failed. Please return to the Hub and try again.';
+          setError(new Error(errorMessage));
+          console.error('❌ Firebase SSO failed:', err);
         } finally {
           setIsLoading(false);
         }
       } else {
+        console.log('✅ useFirebaseSSOAuth: User already authenticated');
         setIsLoading(false);
       }
 
