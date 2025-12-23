@@ -71,14 +71,19 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // Debug: Check for SSO token on app initialization
+  // Debug: Check for SSO token on app initialization (non-destructive check)
   useEffect(() => {
     console.log('🔍 [DEBUG] App.tsx: Initializing, checking for SSO token...');
-    const token = getSSOTokenFromUrl();
+    console.log('🔍 [DEBUG] App.tsx: Full URL:', window.location.href);
+    console.log('🔍 [DEBUG] App.tsx: Search params:', window.location.search);
+    // Read token directly from URL without cleaning it (getSSOTokenFromUrl() removes it)
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('sso_token');
     if (token) {
-      console.log('✅ [DEBUG] App.tsx: SSO token detected in URL on mount');
+      console.log('✅ [DEBUG] App.tsx: SSO token detected in URL on mount (length:', token.length, ')');
     } else {
       console.log('ℹ️ [DEBUG] App.tsx: No SSO token in URL on mount');
+      console.log('⚠️ [DEBUG] App.tsx: All URL params:', Array.from(params.entries()));
     }
   }, []);
 

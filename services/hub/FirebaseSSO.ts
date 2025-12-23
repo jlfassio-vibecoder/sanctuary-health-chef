@@ -5,12 +5,9 @@
  * Flow:
  * 1. Hub generates token and stores in Firestore sso_tokens collection
  * 2. Hub redirects to Chef with ?sso_token=xxx in URL
- * 3. Chef reads token from URL and exchanges it for Firebase ID token
- * 4. Chef uses ID token to authenticate (or exchanges for custom token server-side)
+ * 3. Chef reads token from URL and exchanges it for Firebase Custom Token via Hub API
+ * 4. Chef uses custom token to authenticate with Firebase Auth
  */
-
-import { db } from '../../src/lib/firebase';
-import { doc, getDoc, deleteDoc } from 'firebase/firestore';
 
 export interface FirebaseSSOTokenData {
   user_id: string;
@@ -21,75 +18,117 @@ export interface FirebaseSSOTokenData {
 
 /**
  * Gets SSO token from URL parameter
+ * Also removes the token from URL for security
  */
 export function getSSOTokenFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+
   const params = new URLSearchParams(window.location.search);
-  return params.get('sso_token');
+  const token = params.get('sso_token');
+
+  console.log('🔍 getSSOTokenFromUrl: URL search params:', window.location.search);
+  console.log('🔍 getSSOTokenFromUrl: Extracted token:', token ? `Found (length: ${token.length})` : 'Not found');
+
+  if (token) {
+    // Clean URL to remove token from browser history
+    const url = new URL(window.location.href);
+    url.searchParams.delete('sso_token');
+    window.history.replaceState({}, document.title, url.toString());
+    console.log('🧹 getSSOTokenFromUrl: Token cleaned from URL');
+  }
+
+  return token;
 }
 
 /**
- * Exchanges SSO token for Firebase ID token
- *
- * Queries the Firestore sso_tokens collection to retrieve token data,
- * then returns the user_id and ID token.
- *
- * @param token - The SSO token from URL parameter
- * @returns SSO token data with user_id and ID token, or null if exchange fails
+ * Exchanges SSO token for Firebase Custom Token
+ * 
+ * This calls the Hub app's backend API to exchange the SSO exchange token
+ * (UUID from URL) for a Firebase Custom Token that can be used to authenticate.
+ * 
+ * @param token - SSO exchange token (UUID) from URL parameter
+ * @returns Token data including custom_token for authentication
+ * @throws Error if token exchange fails
  */
 export async function exchangeFirebaseSSOToken(
-  token: string,
-): Promise<FirebaseSSOTokenData | null> {
+  token: string
+): Promise<FirebaseSSOTokenData> {
+  // Validate token is provided
+  if (!token || token.trim() === '') {
+    throw new Error('Missing token');
+  }
+
+  // Get Hub URL from environment variable
+  const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5175';
+  const apiUrl = `${hubUrl}/api/exchange-firebase-sso-token`;
+
   try {
-    console.log('🔐 FirebaseSSO: Exchanging SSO token...');
+    console.log('🔐 FirebaseSSO: Exchanging SSO token via Hub API...', { tokenLength: token.length });
 
-    // Query Firestore sso_tokens collection
-    const tokenDocRef = doc(db, 'sso_tokens', token);
-    const tokenDoc = await getDoc(tokenDocRef);
+    // Call backend API to exchange SSO token for custom token
+    // Note: Hub API expects 'token' field, not 'sso_token'
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ token: token }),
+    });
 
-    if (!tokenDoc.exists()) {
-      console.error('🔐 FirebaseSSO: Token not found in Firestore');
-      return null;
+    if (!response.ok) {
+      let errorData: { error?: string } = { error: 'Unknown error' };
+      try {
+        errorData = await response.json();
+      } catch {
+        // Response body is not JSON, use default error
+      }
+      
+      if (response.status === 404) {
+        throw new Error('Invalid or expired SSO token');
+      } else if (response.status === 400) {
+        throw new Error(errorData.error || 'SSO token has expired');
+      } else if (response.status === 401) {
+        throw new Error('Invalid ID token in SSO token');
+      } else if (response.status >= 500) {
+        throw new Error(errorData.error || 'Server error occurred. Please try again later.');
+      } else {
+        throw new Error(errorData.error || `Request failed with status ${response.status}`);
+      }
     }
 
-    const tokenData = tokenDoc.data();
-
-    // Validate required fields
-    if (!tokenData.user_id) {
-      console.error('🔐 FirebaseSSO: Missing user_id in token data');
-      return null;
+    const data = await response.json();
+    
+    // Hub API returns customToken (camelCase) or custom_token (snake_case)
+    const customToken = data.customToken || data.custom_token;
+    // user_id may not be in response - we'll get it from the authenticated user after sign-in
+    const userId = data.user_id || data.userId || '';
+    
+    if (!customToken) {
+      console.error('❌ FirebaseSSO: Invalid response data:', data);
+      throw new Error('Invalid response from server: missing customToken');
     }
 
-    // Check if token is expired (tokens expire after 5 minutes)
-    const expiresAt = tokenData.expires_at?.toDate?.() || new Date(tokenData.expires_at);
-    const now = new Date();
+    const expiresAt = data.expires_at || data.expiresAt
+      ? new Date(data.expires_at || data.expiresAt) 
+      : new Date(Date.now() + 60 * 60 * 1000); // Default 1 hour
 
-    if (now > expiresAt) {
-      console.error('🔐 FirebaseSSO: Token has expired');
-      // Delete expired token
-      await deleteDoc(tokenDocRef);
-      return null;
-    }
+    console.log('✅ FirebaseSSO: Successfully exchanged SSO token for custom token');
 
-    console.log('✅ FirebaseSSO: Token found and valid');
-
-    // Delete the token after successful exchange (one-time use)
-    try {
-      await deleteDoc(tokenDocRef);
-      console.log('🗑️ FirebaseSSO: Token deleted from Firestore');
-    } catch (deleteError) {
-      console.warn('⚠️ FirebaseSSO: Failed to delete token:', deleteError);
-    }
-
-    // Return token data
     return {
-      user_id: tokenData.user_id,
-      id_token: tokenData.id_token,
-      custom_token: tokenData.custom_token, // Custom token for Firebase Auth (if provided by Hub)
+      user_id: userId, // May be empty, will be populated from authenticated user
+      id_token: '', // Not needed after exchange
+      custom_token: customToken,
       expires_at: expiresAt.toISOString(),
     };
   } catch (error) {
-    console.error('🔐 FirebaseSSO: Error exchanging token:', error);
-    return null;
+    // Re-throw if it's already an Error with a message
+    if (error instanceof Error) {
+      console.error('❌ FirebaseSSO: Failed to exchange SSO token:', error.message);
+      throw error;
+    }
+    // Handle network errors and other unexpected errors
+    console.error('❌ FirebaseSSO: Failed to exchange SSO token:', error);
+    throw new Error('Network error: Unable to connect to authentication server');
   }
 }
 
