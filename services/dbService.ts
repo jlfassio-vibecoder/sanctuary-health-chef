@@ -1,6 +1,5 @@
 /**
  * Firestore Database Service
- * Migrated from Supabase to Firestore
  * Maintains same function signatures for backward compatibility
  */
 
