@@ -204,7 +204,7 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 pb-24 relative">
       <nav className="bg-slate-900/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-800">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center bg-[rgba(125,111,84,1)]">
           <div className="flex items-center gap-2 cursor-pointer group" onClick={handleNewRecipe}>
             <div className="bg-[#f0dc7a] p-2 rounded-lg transform group-hover:rotate-12 transition-transform">
               <ChefHat className="text-slate-900 w-5 h-5" />
@@ -214,10 +214,10 @@ const App: React.FC = () => {
           
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-2">
-            <button onClick={() => setCurrentView('shopping')} className={`text-sm font-medium transition-colors flex items-center gap-2 px-3 py-2 rounded-lg ${currentView === 'shopping' ? 'bg-slate-800 text-[#f0dc7a]' : 'text-slate-400 hover:text-white'}`}><ShoppingCart className="w-4 h-4" /> List</button>
-            <button onClick={() => setCurrentView('kitchen')} className={`text-sm font-medium transition-colors flex items-center gap-2 px-3 py-2 rounded-lg ${currentView === 'kitchen' ? 'bg-slate-800 text-[#f0dc7a]' : 'text-slate-400 hover:text-white'}`}><Archive className="w-4 h-4" /> Kitchen</button>
-            <button onClick={() => setCurrentView('history')} className={`text-sm font-medium transition-colors flex items-center gap-2 px-3 py-2 rounded-lg ${currentView === 'history' ? 'bg-slate-800 text-[#f0dc7a]' : 'text-slate-400 hover:text-white'}`}><BookOpen className="w-4 h-4" /> Cookbook</button>
-            <button onClick={() => setCurrentView('account')} className={`text-sm font-medium transition-colors flex items-center gap-2 px-3 py-2 rounded-lg ${currentView === 'account' ? 'bg-slate-800 text-[#f0dc7a]' : 'text-slate-400 hover:text-white'}`}><User className="w-4 h-4" /> Account</button>
+            <button onClick={() => setCurrentView('shopping')} className={`text-sm font-medium transition-colors flex items-center gap-2 px-3 py-2 rounded-lg ring-offset-white ${currentView === 'shopping' ? 'bg-slate-800 text-[#f0dc7a]' : 'text-slate-400 hover:text-white'}`}><ShoppingCart className="w-4 h-4" /> List</button>
+            <button onClick={() => setCurrentView('kitchen')} className={`text-sm font-medium transition-colors flex items-center gap-2 px-3 py-2 rounded-lg ring-offset-white ${currentView === 'kitchen' ? 'bg-slate-800 text-[#f0dc7a]' : 'text-slate-400 hover:text-white'}`}><Archive className="w-4 h-4" /> Kitchen</button>
+            <button onClick={() => setCurrentView('history')} className={`text-sm font-medium transition-colors flex items-center gap-2 px-3 py-2 rounded-lg ring-offset-white ${currentView === 'history' ? 'bg-slate-800 text-[#f0dc7a]' : 'text-slate-400 hover:text-white'}`}><BookOpen className="w-4 h-4" /> Cookbook</button>
+            <button onClick={() => setCurrentView('account')} className={`text-sm font-medium transition-colors flex items-center gap-2 px-3 py-2 rounded-lg ring-offset-white ${currentView === 'account' ? 'bg-slate-800 text-[#f0dc7a]' : 'text-slate-400 hover:text-white'}`}><User className="w-4 h-4" /> Account</button>
           </div>
 
           {/* Mobile Nav Toggle / Simple */}
