@@ -59,7 +59,7 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && resource.data.user_id == request.auth.uid;
     }
 
-    // Canonical ingredients collection - read-only for all authenticated users
+    // Canonical ingredients collection - read/write for all authenticated users
     match /canonical_ingredients/{ingredientId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated();

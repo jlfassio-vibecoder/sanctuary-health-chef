@@ -55,26 +55,6 @@
           "order": "ASCENDING"
         }
       ]
-    },
-    {
-      "collectionGroup": "locations",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "user_id",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "recipe_ingredients",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "recipe_id",
-          "order": "ASCENDING"
-        }
-      ]
     }
   ],
   "fieldOverrides": []

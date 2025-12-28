@@ -85,14 +85,14 @@ export const ProfileSetup: React.FC<Props> = ({ profile, onSave }) => {
 
   if (!isOpen) {
     return (
-      <div className="bg-slate-800 p-4 rounded-xl shadow-lg border border-slate-700 flex justify-between items-center mb-6">
+      <div className="bg-[#7d6f54] p-4 rounded-xl shadow-lg border border-slate-700 flex justify-between items-center mb-6">
         <div className="flex items-center space-x-4">
           <div className="p-3 bg-[#f0dc7a] rounded-full">
             <ChefHat className="text-slate-900 w-6 h-6" />
           </div>
           <div>
             <h3 className="font-bold text-white">Diner Profile</h3>
-            <p className="text-slate-400 text-sm">
+            <p className="text-slate-900 text-sm">
                 {localProfile.age}yo • {localProfile.fitnessLevel} Cook
             </p>
           </div>

@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
       server: {
-        // Sanctuary Health Chef app port (Hub: 5175, Trainer: 5174, Chef: 5177)
+        // Sanctuary Health Chef app port (Hub: 5175, Trainer: 5176, Chef: 5177)
         port: 5177,
         host: '0.0.0.0',
         cors: {

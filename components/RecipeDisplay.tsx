@@ -65,12 +65,20 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
   }
 
   useEffect(() => {
+    console.log('🔄 [Phase 2] RecipeDisplay plan prop changed:', {
+      recipeId: plan.id,
+      planImageUrl: plan.imageUrl ? plan.imageUrl.substring(0, 100) + '...' : null,
+      planImageUrlType: plan.imageUrl ? (plan.imageUrl.startsWith('data:') ? 'base64' : 'storage') : 'none'
+    });
     setLocalRecipe(plan);
     setHasSaved(!!plan.id);
     setCurrentStepIndex(0);
 
     // Explicitly set image from plan
     setDishImage(plan.imageUrl || null);
+    console.log('🔄 [Phase 2] Set dishImage from plan:', {
+      dishImage: plan.imageUrl ? plan.imageUrl.substring(0, 100) + '...' : null
+    });
 
     // Track whether this recipe already has an image to avoid regenerating
     if (plan.id) {
@@ -78,10 +86,10 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
       newRecipeKeyRef.current = null; // clear any generated key when persisted ID exists
       if (plan.imageUrl) {
         recipeImagesGeneratedRef.current.add(recipeKey);
-        console.log(`✅ [RecipeDisplay] Recipe ${recipeKey} already has image - skipping generation`);
+        console.log(`✅ [Phase 2] Recipe ${recipeKey} already has image - skipping generation`);
       } else {
         recipeImagesGeneratedRef.current.delete(recipeKey);
-        console.log(`🔄 [RecipeDisplay] Recipe ${recipeKey} needs image - will generate`);
+        console.log(`🔄 [Phase 2] Recipe ${recipeKey} needs image - will generate`);
       }
     } else {
       // New recipe (no ID) - allow generation and ensure a unique key
@@ -92,29 +100,72 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
             : `new-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       }
       recipeImagesGeneratedRef.current.clear();
+      console.log('🔄 [Phase 2] New recipe, generated key:', newRecipeKeyRef.current);
     }
   }, [plan]);
 
   useEffect(() => {
     const fetchImage = async () => {
       const recipeKey = localRecipe.id || newRecipeKeyRef.current!;
+      console.log('🔄 [Phase 2] fetchImage useEffect triggered:', {
+        recipeKey,
+        localRecipeId: localRecipe.id,
+        localRecipeImageUrl: localRecipe.imageUrl ? localRecipe.imageUrl.substring(0, 100) + '...' : null,
+        dishImage: dishImage ? dishImage.substring(0, 100) + '...' : null,
+        isImageLoading,
+        alreadyProcessed: recipeImagesGeneratedRef.current.has(recipeKey)
+      });
 
       // Skip generation if we've already processed this recipe
-      if (recipeImagesGeneratedRef.current.has(recipeKey)) return;
+      if (recipeImagesGeneratedRef.current.has(recipeKey)) {
+        console.log('⏭️ [Phase 2] Recipe already processed, skipping');
+        return;
+      }
 
-      if (!dishImage && !isImageLoading && localRecipe.title) {
+      // Only generate image if:
+      // 1. No image exists (dishImage is null/empty)
+      // 2. Recipe doesn't have a saved image URL (localRecipe.imageUrl is null/empty)
+      // 3. Recipe has a title (required for generation)
+      // 4. Not currently loading
+      const hasNoImage = !dishImage && !localRecipe.imageUrl;
+      console.log('🔄 [Phase 2] Image generation check:', {
+        hasNoImage,
+        hasTitle: !!localRecipe.title,
+        isImageLoading
+      });
+      
+      if (hasNoImage && !isImageLoading && localRecipe.title) {
+        console.log('🔄 [Phase 2] Generating new image...');
         setIsImageLoading(true);
         const imgUrl = await generateDishImage(localRecipe.title, localRecipe.description);
         if (imgUrl) {
+           console.log('✅ [Phase 2] Image generated, updating state:', {
+             imgUrlPreview: imgUrl.substring(0, 100) + '...',
+             recipeKey
+           });
            setDishImage(imgUrl);
-           setLocalRecipe(prev => ({ ...prev, imageUrl: imgUrl }));
+           setLocalRecipe(prev => {
+             const updated = { ...prev, imageUrl: imgUrl };
+             console.log('✅ [Phase 2] Updated localRecipe.imageUrl:', {
+               prevImageUrl: prev.imageUrl ? prev.imageUrl.substring(0, 100) + '...' : null,
+               newImageUrl: imgUrl.substring(0, 100) + '...'
+             });
+             return updated;
+           });
            recipeImagesGeneratedRef.current.add(recipeKey);
+        } else {
+          console.warn('⚠️ [Phase 2] Image generation returned null');
         }
         setIsImageLoading(false);
+      } else if (localRecipe.imageUrl && !dishImage) {
+        // If recipe has an image URL from database, use it
+        console.log('✅ [Phase 2] Using saved image from localRecipe.imageUrl');
+        setDishImage(localRecipe.imageUrl);
+        recipeImagesGeneratedRef.current.add(recipeKey);
       }
     };
     fetchImage();
-  }, [localRecipe.title, localRecipe.description, dishImage, isImageLoading, localRecipe.id]);
+  }, [localRecipe.title, localRecipe.description, dishImage, isImageLoading, localRecipe.id, localRecipe.imageUrl]);
 
   const handleNext = useCallback(() => {
     if (currentStepIndex < displaySteps.length - 1) setCurrentStepIndex(prev => prev + 1);
@@ -125,13 +176,23 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
   }, [currentStepIndex]);
 
   const handleFullSave = async () => {
+      console.log('💾 [Phase 2] handleFullSave called:', {
+        recipeId: localRecipe.id,
+        recipeTitle: localRecipe.title,
+        localRecipeImageUrl: localRecipe.imageUrl ? localRecipe.imageUrl.substring(0, 100) + '...' : null,
+        imageUrlType: localRecipe.imageUrl ? (localRecipe.imageUrl.startsWith('data:') ? 'base64' : 'storage') : 'none',
+        userId
+      });
       setIsSaving(true);
       const newId = await saveRecipeToDb(localRecipe, userId);
       setIsSaving(false);
       if (newId) {
+          console.log('✅ [Phase 2] Recipe saved with ID:', newId);
           setLocalRecipe(prev => ({ ...prev, id: newId }));
           setHasSaved(true);
           alert("Recipe saved to cookbook!"); 
+      } else {
+          console.error('❌ [Phase 2] Recipe save failed - no ID returned');
       }
   };
 
@@ -190,6 +251,20 @@ export const RecipeDisplay: React.FC<Props> = ({ plan, units, userId }) => {
                             src={dishImage} 
                             alt={localRecipe.title} 
                             className="w-full h-full object-cover animate-in fade-in duration-1000"
+                            onLoad={() => {
+                              console.log('✅ [Phase 6] Image loaded successfully in RecipeDisplay:', {
+                                recipeId: localRecipe.id,
+                                imageType: dishImage.startsWith('data:') ? 'base64' : 'storage'
+                              });
+                            }}
+                            onError={(e) => {
+                              console.error('❌ [Phase 6] Image failed to load in RecipeDisplay:', {
+                                recipeId: localRecipe.id,
+                                src: dishImage.substring(0, 100) + '...',
+                                imageType: dishImage.startsWith('data:') ? 'base64' : 'storage',
+                                error: e
+                              });
+                            }}
                           />
                       ) : (
                           <div className="w-full h-full flex items-center justify-center bg-slate-800 text-slate-500">

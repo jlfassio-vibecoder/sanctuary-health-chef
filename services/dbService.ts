@@ -3,7 +3,7 @@
  * Maintains same function signatures for backward compatibility
  */
 
-import { db } from '../src/lib/firebase';
+import { db, auth } from '../src/lib/firebase';
 import { 
   collection, 
   doc, 
@@ -25,6 +25,7 @@ import {
 } from 'firebase/firestore';
 import { Recipe, RecipeSection, UserProfile, AuditItem, Ingredient, ShoppingListItem, Location, InventoryItem } from '../types';
 import { DEFAULT_UNITS, DEFAULT_PROFILE_VALUES } from '../constants/defaults';
+import { uploadRecipeImageToStorage, isBase64DataUrl, isStorageUrl } from './imageService';
 
 /**
  * Helper to extract meaningful error messages
@@ -66,6 +67,61 @@ const isoToTimestamp = (iso: string | undefined): Timestamp | null => {
   } catch {
     return null;
   }
+};
+
+/**
+ * Helper to process image URL - uploads base64 images to Storage, returns Storage URL
+ * For Storage URLs, returns as-is. For base64 data URLs, uploads to Storage.
+ * Falls back gracefully if Storage is not available.
+ */
+const processImageUrl = async (
+  imageUrl: string | undefined | null,
+  recipeId: string,
+  userId: string
+): Promise<string | null> => {
+  console.log('🔄 [Phase 4] processImageUrl called:', {
+    recipeId,
+    userId,
+    imageUrl: imageUrl ? imageUrl.substring(0, 100) + '...' : null,
+    imageUrlType: imageUrl ? (imageUrl.startsWith('data:') ? 'base64' : imageUrl.includes('firebasestorage') ? 'storage' : 'external') : 'none'
+  });
+  
+  if (!imageUrl) {
+    console.log('⚠️ [Phase 4] No imageUrl provided, returning null');
+    return null;
+  }
+  
+  // If it's already a Storage URL, use it as-is
+  if (isStorageUrl(imageUrl)) {
+    console.log('✅ [Phase 4] Image is already a Storage URL, using as-is');
+    return imageUrl;
+  }
+  
+  // If it's a base64 data URL, try to upload to Storage
+  if (isBase64DataUrl(imageUrl)) {
+    console.log('🔄 [Phase 4] Image is base64, uploading to Storage...');
+    // Function signature: uploadRecipeImage(imageSource, userId, recipeId)
+    const storageUrl = await uploadRecipeImageToStorage(imageUrl, userId, recipeId);
+    
+    // If upload failed (Storage not enabled or CORS issue), skip image storage
+    // Recipe will save without image, but won't fail completely
+    if (!storageUrl) {
+      console.warn('⚠️ [Phase 4] Image upload to Storage failed. Recipe will be saved without image.');
+      console.warn('💡 [Phase 4] To enable image storage:');
+      console.warn('   1. Enable Firebase Storage: https://console.firebase.google.com/project/sanctuary-health/storage');
+      console.warn('   2. Deploy storage rules: firebase deploy --only storage');
+      return null; // Return null to skip image storage
+    }
+    
+    console.log('✅ [Phase 4] Image uploaded successfully, returning Storage URL:', {
+      storageUrl: storageUrl.substring(0, 100) + '...'
+    });
+    return storageUrl;
+  }
+  
+  // For other URLs (external URLs), use as-is
+  console.log('✅ [Phase 4] Image is external URL, using as-is');
+  return imageUrl;
 };
 
 /**
@@ -241,9 +297,24 @@ const processRecipeIngredients = async (recipeId: string, sections: RecipeSectio
  */
 export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<string | null> => {
   console.log("Saving recipe to DB...", recipe.title);
+  console.log("📊 Recipe save - userId:", userId);
+
+  let recipeId: string | undefined = recipe.id; // Declare outside try block for error handling
 
   try {
-    let recipeId = recipe.id;
+    // Verify user is authenticated by checking Firebase Auth
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error('User not authenticated. Please sign in.');
+    }
+    if (currentUser.uid !== userId) {
+      console.warn(`⚠️ User ID mismatch: auth.uid=${currentUser.uid}, provided userId=${userId}`);
+      // Use the authenticated user's ID instead to match Firestore rules
+      userId = currentUser.uid;
+    }
+    console.log("✅ Auth verified - uid:", currentUser.uid);
+    
+    recipeId = recipe.id;
 
     // Normalize difficulty
     const normalizeDifficulty = (diff: string): string | null => {
@@ -266,6 +337,58 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
       return null;
     };
     
+    // 1. Get or create recipe ID
+    let recipeRef: any;
+    let isNewRecipe = false;
+    let existingRecipeSnap: any = null;
+    
+    if (recipeId) {
+      // Existing recipe - get reference and check if it exists
+      recipeRef = doc(db, 'recipes', recipeId);
+      existingRecipeSnap = await getDoc(recipeRef);
+      isNewRecipe = !existingRecipeSnap.exists();
+    } else {
+      // New recipe - create reference with auto-generated ID
+      recipeRef = doc(collection(db, 'recipes'));
+      recipeId = recipeRef.id;
+      isNewRecipe = true;
+    }
+
+    // 2. Process and upload image to Storage if it's a base64 data URL
+    // Wrap in try-catch to ensure image upload failure doesn't block recipe save
+    let imageUrl: string | null = null;
+    console.log('🔄 [Phase 4] Processing image for recipe save:', {
+      recipeId,
+      hasRecipeImageUrl: !!recipe.imageUrl,
+      recipeImageUrlType: recipe.imageUrl ? (recipe.imageUrl.startsWith('data:') ? 'base64' : 'storage') : 'none',
+      recipeImageUrlPreview: recipe.imageUrl ? recipe.imageUrl.substring(0, 100) + '...' : null
+    });
+    
+    if (recipe.imageUrl && recipeId) {
+      try {
+        imageUrl = await processImageUrl(recipe.imageUrl, recipeId, userId);
+        console.log('✅ [Phase 4] Image processing result:', {
+          imageUrl: imageUrl ? imageUrl.substring(0, 100) + '...' : null,
+          imageUrlType: imageUrl ? (imageUrl.includes('firebasestorage') ? 'storage' : 'other') : 'null'
+        });
+      } catch (imageError: any) {
+        // Image upload failed (likely Storage not enabled or CORS issue)
+        // Log warning but continue with recipe save
+        console.warn('⚠️ [Phase 4] Image upload failed, saving recipe without image:', {
+          error: imageError?.message || imageError,
+          code: imageError?.code
+        });
+        imageUrl = null; // Ensure we don't save a failed URL
+      }
+    } else {
+      if (!recipe.imageUrl) {
+        console.log('⚠️ [Phase 4] No recipe.imageUrl provided');
+      }
+      if (!recipeId) {
+        console.log('⚠️ [Phase 4] No recipeId available for image upload');
+      }
+    }
+
     const recipePayload: any = {
       user_id: userId,
       name: recipe.title,
@@ -280,30 +403,75 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
       allergens: recipe.allergens || [],
       chef_note: recipe.chefNote || null,
       chef_persona: recipe.chefPersona || null,
-      image_url: recipe.imageUrl || null,
+      image_url: imageUrl,
       is_favorite: recipe.isFavorite || false,
       is_public: recipe.isPublic || false,
       updated_at: serverTimestamp()
     };
+    
+    console.log('📝 [Phase 4] Recipe payload created:', {
+      recipeId,
+      userId,
+      hasImageUrl: !!recipePayload.image_url,
+      imageUrl: recipePayload.image_url ? recipePayload.image_url.substring(0, 100) + '...' : null,
+      imageUrlType: recipePayload.image_url ? (recipePayload.image_url.includes('firebasestorage') ? 'storage' : 'other') : 'null',
+      payloadKeys: Object.keys(recipePayload)
+    });
 
-    // Handle created_at
-    if (recipe.createdAt) {
-      recipePayload.created_at = isoToTimestamp(recipe.createdAt);
-    } else if (!recipeId) {
-      recipePayload.created_at = serverTimestamp();
-    }
-
-    // 1. Save/Update Recipe
-    if (recipeId) {
-      const recipeRef = doc(db, 'recipes', recipeId);
-      await updateDoc(recipeRef, recipePayload);
-    } else {
-      const recipeRef = doc(collection(db, 'recipes'));
-      recipeId = recipeRef.id;
+    // Handle created_at based on whether this is a new or existing recipe
+    if (isNewRecipe) {
+      // New recipe - set created_at
+      if (recipe.createdAt) {
+        recipePayload.created_at = isoToTimestamp(recipe.createdAt);
+      } else {
+        recipePayload.created_at = serverTimestamp();
+      }
+      // Use setDoc for new recipes (CREATE operation - matches Firestore rules)
+      console.log("📝 [Phase 4] Creating new recipe with payload:", {
+        recipeId,
+        userId,
+        authUid: currentUser.uid,
+        user_id: recipePayload.user_id,
+        hasImage: !!recipePayload.image_url,
+        image_url: recipePayload.image_url ? recipePayload.image_url.substring(0, 100) + '...' : null
+      });
       await setDoc(recipeRef, recipePayload);
+      console.log("✅ [Phase 4] Recipe document created in Firestore:", {
+        recipeId,
+        image_url_saved: !!recipePayload.image_url
+      });
+    } else {
+      // Existing recipe - verify ownership before updating
+      // Reuse the document snapshot we already fetched
+      if (!existingRecipeSnap || !existingRecipeSnap.exists()) {
+        // Document was deleted or doesn't exist - treat as new
+        console.log("⚠️ Recipe document doesn't exist, creating new one");
+        recipePayload.created_at = serverTimestamp();
+        await setDoc(recipeRef, recipePayload);
+      } else {
+        const existingUserId = existingRecipeSnap.data()?.user_id;
+        if (existingUserId !== currentUser.uid) {
+          throw new Error(`Permission denied: Recipe belongs to user ${existingUserId}, but you are ${currentUser.uid}`);
+        }
+        // Existing recipe - don't update created_at, use updateDoc (UPDATE operation)
+        console.log("🔄 [Phase 4] Updating existing recipe with payload:", {
+          recipeId,
+          userId,
+          authUid: currentUser.uid,
+          user_id: recipePayload.user_id,
+          existing_user_id: existingUserId,
+          hasImage: !!recipePayload.image_url,
+          image_url: recipePayload.image_url ? recipePayload.image_url.substring(0, 100) + '...' : null
+        });
+        await updateDoc(recipeRef, recipePayload);
+        console.log("✅ [Phase 4] Recipe document updated in Firestore:", {
+          recipeId,
+          image_url_saved: !!recipePayload.image_url
+        });
+      }
     }
 
-    // 2. Delete existing content
+    // 3. Delete existing content
     const contentRef = collection(db, 'recipe_content');
     const contentQuery = query(contentRef, where('recipe_id', '==', recipeId));
     const contentSnapshot = await getDocs(contentQuery);
@@ -314,7 +482,7 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
     });
     await batch.commit();
 
-    // 3. Insert new content
+    // 4. Insert new content
     const contentToInsert = recipe.sections.map((section, index) => {
       let sectionType = 'notes';
       const typeLower = section.type.toLowerCase();
@@ -348,7 +516,7 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
       await contentBatch.commit();
     }
 
-    // 4. Process ingredients (non-critical)
+    // 5. Process ingredients (non-critical)
     try {
       // Delete existing recipe_ingredients
       const recipeIngredientsRef = collection(db, 'recipe_ingredients');
@@ -370,8 +538,26 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
 
   } catch (error: any) {
     console.error("Critical error saving recipe:", error);
+    console.error("Error details:", {
+      code: error?.code,
+      message: error?.message,
+      userId,
+      authUid: auth.currentUser?.uid,
+      recipeId: recipeId || 'not-set',
+      isAuthenticated: !!auth.currentUser
+    });
     const msg = extractErrorMessage(error);
-    alert(`Failed to save recipe: ${msg}`);
+    
+    // Provide more specific error messages
+    if (msg.includes('permission') || msg.includes('Permission') || error?.code === 'permission-denied') {
+      console.error("🔒 Permission denied. Check:");
+      console.error("   1. User is authenticated:", !!auth.currentUser);
+      console.error("   2. User ID matches auth.uid:", userId === auth.currentUser?.uid);
+      console.error("   3. Firestore rules require: request.resource.data.user_id == request.auth.uid");
+      alert(`Failed to save recipe: Permission denied. Please ensure you're signed in and try again.`);
+    } else {
+      alert(`Failed to save recipe: ${msg}`);
+    }
     return null;
   }
 };
@@ -380,6 +566,7 @@ export const saveRecipeToDb = async (recipe: Recipe, userId: string): Promise<st
  * Fetches all recipes for a user
  */
 export const getSavedRecipes = async (userId: string, includeImages: boolean = false): Promise<Recipe[]> => {
+  console.log('📖 [Phase 5] getSavedRecipes called:', { userId, includeImages });
   try {
     const recipesRef = collection(db, 'recipes');
     const q = query(
@@ -389,9 +576,13 @@ export const getSavedRecipes = async (userId: string, includeImages: boolean = f
     );
     const recipesSnapshot = await getDocs(q);
 
-    if (recipesSnapshot.empty) return [];
+    if (recipesSnapshot.empty) {
+      console.log('📖 [Phase 5] No recipes found for user');
+      return [];
+    }
 
     const recipeIds = recipesSnapshot.docs.map(doc => doc.id);
+    console.log('📖 [Phase 5] Found recipes:', { count: recipeIds.length, recipeIds });
     
     // Fetch content for all recipes
     // Firestore 'in' queries are limited to 10 items, so batch if needed
@@ -471,6 +662,11 @@ export const getSavedRecipes = async (userId: string, includeImages: boolean = f
       };
     });
 
+    console.log('✅ [Phase 5] getSavedRecipes completed:', {
+      recipeCount: fullRecipes.length,
+      recipesWithImages: fullRecipes.filter(r => r.imageUrl).length,
+      includeImages
+    });
     return fullRecipes;
 
   } catch (error: any) {
@@ -483,13 +679,23 @@ export const getSavedRecipes = async (userId: string, includeImages: boolean = f
  * Fetch a single recipe by ID
  */
 export const getRecipeById = async (recipeId: string, includeImages: boolean = true): Promise<Recipe | null> => {
+  console.log('📖 [Phase 5] getRecipeById called:', { recipeId, includeImages });
   try {
     const recipeRef = doc(db, 'recipes', recipeId);
     const recipeSnap = await getDoc(recipeRef);
 
-    if (!recipeSnap.exists()) return null;
+    if (!recipeSnap.exists()) {
+      console.log('⚠️ [Phase 5] Recipe not found:', recipeId);
+      return null;
+    }
 
     const recipeRow = recipeSnap.data();
+    console.log('📖 [Phase 5] Recipe data from Firestore:', {
+      recipeId,
+      hasImageUrl: !!recipeRow.image_url,
+      image_url: recipeRow.image_url ? recipeRow.image_url.substring(0, 100) + '...' : null,
+      includeImages
+    });
 
     // Fetch content
     const contentRef = collection(db, 'recipe_content');
@@ -523,7 +729,7 @@ export const getRecipeById = async (recipeId: string, includeImages: boolean = t
       };
     });
 
-    return {
+    const result = {
       id: recipeSnap.id,
       title: recipeRow.name || '',
       description: recipeRow.description || '',
@@ -548,8 +754,16 @@ export const getRecipeById = async (recipeId: string, includeImages: boolean = t
       createdAt: timestampToISO(recipeRow.created_at),
       sections
     };
+    
+    console.log('✅ [Phase 5] getRecipeById completed:', {
+      recipeId,
+      hasImageUrl: !!result.imageUrl,
+      imageUrl: result.imageUrl ? result.imageUrl.substring(0, 100) + '...' : null
+    });
+    
+    return result;
   } catch (error) {
-    console.error('Error fetching recipe by id:', error);
+    console.error('❌ [Phase 5] Error fetching recipe by id:', error);
     return null;
   }
 };
@@ -558,7 +772,11 @@ export const getRecipeById = async (recipeId: string, includeImages: boolean = t
  * Fetches image URLs for multiple recipes in batch
  */
 export const getRecipeImageUrls = async (recipeIds: string[]): Promise<Map<string, string>> => {
-  if (recipeIds.length === 0) return new Map();
+  console.log('📖 [Phase 5] getRecipeImageUrls called:', { recipeIds, count: recipeIds.length });
+  if (recipeIds.length === 0) {
+    console.log('📖 [Phase 5] No recipe IDs provided, returning empty Map');
+    return new Map();
+  }
 
   try {
     // Firestore doesn't support querying by document ID with 'in', so fetch individually
@@ -569,26 +787,41 @@ export const getRecipeImageUrls = async (recipeIds: string[]): Promise<Map<strin
     const batchSize = 10;
     for (let i = 0; i < recipeIds.length; i += batchSize) {
       const batch = recipeIds.slice(i, i + batchSize);
+      console.log(`📖 [Phase 5] Processing batch ${Math.floor(i / batchSize) + 1}:`, { batch });
       const promises = batch.map(async (id) => {
         try {
           const recipeRef = doc(db, 'recipes', id);
           const recipeSnap = await getDoc(recipeRef);
           if (recipeSnap.exists()) {
             const data = recipeSnap.data();
+            console.log(`📖 [Phase 5] Recipe ${id}:`, {
+              hasImageUrl: !!data.image_url,
+              image_url: data.image_url ? data.image_url.substring(0, 100) + '...' : null
+            });
             if (data.image_url) {
               imageMap.set(id, data.image_url);
             }
+          } else {
+            console.log(`⚠️ [Phase 5] Recipe ${id} does not exist in Firestore`);
           }
         } catch (error) {
-          console.warn(`Error fetching recipe ${id}:`, error);
+          console.warn(`❌ [Phase 5] Error fetching recipe ${id}:`, error);
         }
       });
       await Promise.all(promises);
     }
 
+    console.log('✅ [Phase 5] getRecipeImageUrls completed:', {
+      requestedCount: recipeIds.length,
+      foundCount: imageMap.size,
+      imageMapEntries: Array.from(imageMap.entries()).map(([id, url]) => ({
+        id,
+        url: url.substring(0, 100) + '...'
+      }))
+    });
     return imageMap;
   } catch (error) {
-    console.error('Error fetching recipe image URLs:', error);
+    console.error('❌ [Phase 5] Error fetching recipe image URLs:', error);
     return new Map();
   }
 };

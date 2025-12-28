@@ -25,6 +25,10 @@ This guide provides instructions for updating the Sanctuary Health Chef app's co
 - **Light Gold 1**: `#faf5e1` - Very light background tint
 - **Light Gold 2**: `#fdfaf0` - Lightest background tint
 
+### Functional Colors
+
+- **Error Red**: `#EF4444` - Error states, warnings, and destructive actions
+
 ## Migration Steps
 
 ### Step 1: Identify Current Color Usage
