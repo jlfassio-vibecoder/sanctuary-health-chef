@@ -29,6 +29,7 @@
 - **Dark Border**: `#9c8c53` - Dark borders
 - **Shadow**: `#807048` - Shadows
 - **Darkest**: `#6b5d3c` - Deep shadows, dark gradients
+- **Error Red**: `#EF4444` - Error states, warnings, and destructive actions
 
 ## One-Line Search Command
 

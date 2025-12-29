@@ -37,23 +37,45 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
   }, [userId]);
 
   const loadImageForRecipe = useCallback(async (recipeId: string) => {
+    console.log('🖼️ [Phase 6] loadImageForRecipe called:', {
+      recipeId,
+      inCache: imageCache.has(recipeId),
+      isLoading: loadingRecipes.has(recipeId)
+    });
+    
     // Skip if already cached or currently loading
     if (imageCache.has(recipeId) || loadingRecipes.has(recipeId)) {
       if (imageCache.has(recipeId)) {
-        setLoadedImages(prev => new Map(prev).set(recipeId, imageCache.get(recipeId)!));
+        const cachedUrl = imageCache.get(recipeId)!;
+        console.log('✅ [Phase 6] Using cached image:', {
+          recipeId,
+          cachedUrl: cachedUrl.substring(0, 100) + '...'
+        });
+        setLoadedImages(prev => new Map(prev).set(recipeId, cachedUrl));
       }
       return;
     }
 
     loadingRecipes.add(recipeId);
     try {
+      console.log('📖 [Phase 6] Fetching image URL for recipe:', recipeId);
       const imageMap = await getRecipeImageUrls([recipeId]);
       const imageUrl = imageMap.get(recipeId);
+      
+      console.log('📖 [Phase 6] Image fetch result:', {
+        recipeId,
+        hasImageUrl: !!imageUrl,
+        imageUrl: imageUrl ? imageUrl.substring(0, 100) + '...' : null
+      });
       
       if (imageUrl) {
         // Cache the image
         imageCache.set(recipeId, imageUrl);
         setLoadedImages(prev => new Map(prev).set(recipeId, imageUrl));
+        console.log('✅ [Phase 6] Image loaded and cached:', {
+          recipeId,
+          imageUrl: imageUrl.substring(0, 100) + '...'
+        });
         
         // Update recipe state
         setRecipes(prevRecipes => 
@@ -61,9 +83,11 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
             recipe.id === recipeId ? { ...recipe, imageUrl } : recipe
           )
         );
+      } else {
+        console.warn('⚠️ [Phase 6] No image URL found for recipe:', recipeId);
       }
     } catch (error) {
-      console.error(`Error loading image for recipe ${recipeId}:`, error);
+      console.error(`❌ [Phase 6] Error loading image for recipe ${recipeId}:`, error);
     } finally {
       loadingRecipes.delete(recipeId);
     }
@@ -244,9 +268,23 @@ export const RecipeHistory: React.FC<Props> = ({ onLoadWorkout, userId }) => {
                 {displayImageUrl && (
                     <div className="relative h-48 md:h-64 w-full bg-slate-800 shrink-0 -mx-5 -mt-5 mb-0">
                         <img 
-                            src={recipe.imageUrl} 
+                            src={displayImageUrl} 
                             alt={recipe.title}
                             className="w-full h-full object-cover animate-in fade-in duration-1000"
+                            onLoad={() => {
+                              console.log('✅ [Phase 6] Image loaded successfully in RecipeHistory:', {
+                                recipeId,
+                                imageType: displayImageUrl.startsWith('data:') ? 'base64' : 'storage'
+                              });
+                            }}
+                            onError={(e) => {
+                              console.error('❌ [Phase 6] Image failed to load in RecipeHistory:', {
+                                recipeId,
+                                src: displayImageUrl.substring(0, 100) + '...',
+                                imageType: displayImageUrl.startsWith('data:') ? 'base64' : 'storage',
+                                error: e
+                              });
+                            }}
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-90"></div>
                         <div className="absolute bottom-4 left-6 right-6">

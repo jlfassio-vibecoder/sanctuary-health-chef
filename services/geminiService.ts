@@ -209,9 +209,11 @@ export const generateRecipe = async (
 };
 
 export const generateDishImage = async (title: string, description: string): Promise<string | null> => {
+  console.log('🖼️ [Phase 1] generateDishImage called:', { title, description: description?.substring(0, 50) });
   const ai = new GoogleGenAI({ apiKey: currentApiKey });
   try {
     const prompt = `Professional food photography of ${title}. ${description}. 4k, cinematic lighting, top down view.`;
+    console.log('🖼️ [Phase 1] Calling Gemini API for image generation...');
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: { parts: [{ text: prompt }] },
@@ -220,11 +222,21 @@ export const generateDishImage = async (title: string, description: string): Pro
 
     const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
     if (part?.inlineData?.data) {
-        return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+        const mimeType = part.inlineData.mimeType || 'image/png';
+        const dataUrl = `data:${mimeType};base64,${part.inlineData.data}`;
+        const dataLength = part.inlineData.data.length;
+        console.log('✅ [Phase 1] Image generated successfully:', {
+          mimeType,
+          dataLength,
+          dataUrlPreview: dataUrl.substring(0, 100) + '...',
+          isBase64: dataUrl.startsWith('data:image/')
+        });
+        return dataUrl;
     }
+    console.warn('⚠️ [Phase 1] No image data found in response');
     return null;
   } catch (error) {
-    console.error("Error generating image:", error);
+    console.error("❌ [Phase 1] Error generating image:", error);
     return null;
   }
 };

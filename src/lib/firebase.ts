@@ -1,6 +1,7 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import { getStorage, connectStorageEmulator } from 'firebase/storage';
 import { getAnalytics, isSupported, type Analytics } from 'firebase/analytics';
 
 const firebaseConfig = {
@@ -26,11 +27,12 @@ export const isFirebaseConfigured = (): boolean => {
 let appInstance: FirebaseApp;
 let authInstance: ReturnType<typeof getAuth>;
 let dbInstance: ReturnType<typeof getFirestore>;
+let storageInstance: ReturnType<typeof getStorage>;
 let analyticsInstance: Analytics | null = null;
 
 function createFirebaseAppAndServices() {
   if (appInstance) {
-    return { app: appInstance, auth: authInstance, db: dbInstance, analytics: analyticsInstance };
+    return { app: appInstance, auth: authInstance, db: dbInstance, storage: storageInstance, analytics: analyticsInstance };
   }
 
   const existingApps = getApps();
@@ -64,6 +66,7 @@ function createFirebaseAppAndServices() {
 
   authInstance = getAuth(appInstance);
   dbInstance = getFirestore(appInstance);
+  storageInstance = getStorage(appInstance);
 
   // Initialize Analytics only in browser environment and if supported
   if (typeof window !== 'undefined' && !isTestEnv) {
@@ -82,24 +85,27 @@ function createFirebaseAppAndServices() {
     try {
       connectAuthEmulator(authInstance, 'http://localhost:9099', { disableWarnings: true });
       connectFirestoreEmulator(dbInstance, 'localhost', 8080);
+      connectStorageEmulator(storageInstance, 'localhost', 9199);
     } catch (error) {
       console.warn('Firebase emulators not available:', error);
     }
   }
 
-  return { app: appInstance, auth: authInstance, db: dbInstance, analytics: analyticsInstance };
+  return { app: appInstance, auth: authInstance, db: dbInstance, storage: storageInstance, analytics: analyticsInstance };
 }
 
 // Initialize Firebase services
 let app: FirebaseApp;
 let auth: ReturnType<typeof getAuth>;
 let db: ReturnType<typeof getFirestore>;
+let storage: ReturnType<typeof getStorage>;
 let analytics: Analytics | null = null;
 
 const services = createFirebaseAppAndServices();
 app = services.app;
 auth = services.auth;
 db = services.db;
+storage = services.storage;
 analytics = services.analytics;
 
 // Initialize Analytics asynchronously
@@ -111,6 +117,6 @@ if (typeof window !== 'undefined' && !isTestEnv) {
   });
 }
 
-export { app, auth, db, analytics };
+export { app, auth, db, storage, analytics };
 export default app;
 

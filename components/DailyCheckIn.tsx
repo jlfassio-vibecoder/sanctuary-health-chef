@@ -200,7 +200,7 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
         </div>
       )}
       
-      <form onSubmit={handleSubmit} className="p-6 space-y-8">
+      <form onSubmit={handleSubmit} className="p-6 space-y-8 bg-[#7d6f54]">
         {/* Trainer Selector */}
         <div>
           <label className="block text-slate-300 font-medium mb-3">Choose Your Chef</label>
@@ -221,7 +221,7 @@ export const DailyCheckIn: React.FC<Props> = ({ onSubmit, isLoading }) => {
                   }`}
                 >
                   <div className="relative z-10">
-                    <div className="font-bold text-sm mb-1 text-white">{t}</div>
+                    <div className="font-bold text-sm mb-1 text-[#f0dc7a]">{t}</div>
                     <div className={`text-xs ${isSelected ? 'text-slate-200' : 'text-slate-500'}`}>
                       {details.description}
                     </div>
